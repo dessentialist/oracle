@@ -148,8 +148,8 @@ describe('Feature: Core Data Enrichment Workflow', () => {
       processedRows: 0,
       totalRows: 0
     });
-    vi.mocked(storage.updateProcessingStatus).mockResolvedValue();
-    vi.mocked(storage.addConsoleMessage).mockResolvedValue();
+    vi.mocked(storage.updateProcessingStatus).mockResolvedValue({} as any);
+    vi.mocked(storage.addConsoleMessage).mockResolvedValue({} as any);
   });
 
   describe('Scenario: Successful End-to-End Data Enrichment with a Single Prompt', () => {
@@ -292,7 +292,7 @@ describe('Feature: Core Data Enrichment Workflow', () => {
       );
       
       // When generating an enriched CSV
-      const enrichedCsv = await CsvService.generateEnrichedCsv(1, enrichedRows);
+      const { content: enrichedCsv } = await CsvService.generateEnrichedCsv(1, enrichedRows);
       
       // Then the CSV content should include both original and new columns
       expect(enrichedCsv).toContain('Name,Company,Inquiry,FollowUpText');
@@ -524,7 +524,7 @@ describe('Feature: Core Data Enrichment Workflow', () => {
       );
       
       // When generating an enriched CSV
-      const enrichedCsv = await CsvService.generateEnrichedCsv(1, enrichedRows);
+      const { content: enrichedCsv } = await CsvService.generateEnrichedCsv(1, enrichedRows);
       
       // Then the CSV content should include both original and new columns
       expect(enrichedCsv).toContain('CustomerID,FeedbackText,Summary,Sentiment');

@@ -106,10 +106,16 @@ export class PromptService {
         csvFileId
       );
       
+      // Automatically save the preview data to the enriched folder
+      const { filePath } = await CsvService.generateEnrichedCsv(
+        csvFileId,
+        enrichedRows
+      );
+      
       // Log completion
       await storage.addConsoleMessage(csvFileId, {
         type: 'success',
-        message: 'Preview generated successfully.',
+        message: `Preview generated successfully. Preview CSV saved to ${filePath}`,
         timestamp: new Date().toISOString()
       });
       
@@ -172,10 +178,16 @@ export class PromptService {
         csvFileId
       );
       
+      // Automatically save the enriched CSV file
+      const { filePath } = await CsvService.generateEnrichedCsv(
+        csvFileId,
+        enrichedRows
+      );
+      
       // Log completion
       await storage.addConsoleMessage(csvFileId, {
         type: 'success',
-        message: 'Processing completed successfully! All rows processed.',
+        message: `Processing completed successfully! All rows processed. Enriched CSV saved to ${filePath}`,
         timestamp: new Date().toISOString()
       });
       
