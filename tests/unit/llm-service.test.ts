@@ -151,7 +151,7 @@ describe('LLMService', () => {
       expect(storage.updateProcessingStatus).toHaveBeenCalledTimes(4); // Initial, two progress updates, and complete
     });
 
-    it('should handle errors during row processing', async () => {
+    it('should handle rate limiting errors by pausing processing', async () => {
       // Arrange
       const rows = [
         { name: 'John', age: '30', bio: 'Software engineer' },
@@ -161,7 +161,7 @@ describe('LLMService', () => {
       const outputColumnNames = ['career_advice'];
       const csvFileId = 1;
 
-      // First query succeeds, second fails
+      // First query succeeds, second fails with rate limit error
       vi.spyOn(LLMService, 'query')
         .mockResolvedValueOnce('Great career ahead')
         .mockRejectedValueOnce(new Error('API rate limit exceeded'));
@@ -174,16 +174,69 @@ describe('LLMService', () => {
         totalRows: 2
       });
 
+      // Act
+      const result = await LLMService.processRows(rows, promptTemplates, outputColumnNames, csvFileId);
+      
+      // Assert - should return processed rows before the rate limit was hit
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        name: 'John',
+        age: '30',
+        bio: 'Software engineer',
+        career_advice: 'Great career ahead'
+      });
+      
+      // Check warning was logged
+      expect(storage.addConsoleMessage).toHaveBeenCalledWith(
+        csvFileId,
+        expect.objectContaining({
+          type: "warning",
+          message: expect.stringContaining("Rate limit hit")
+        })
+      );
+      
+      // Check status was updated to paused
+      expect(storage.updateProcessingStatus).toHaveBeenCalledWith(
+        csvFileId,
+        expect.objectContaining({
+          status: 'paused'
+        })
+      );
+    });
+    
+    it('should handle authentication errors by stopping processing', async () => {
+      // Arrange
+      const rows = [
+        { name: 'John', age: '30', bio: 'Software engineer' },
+        { name: 'Jane', age: '25', bio: 'Marketing specialist' }
+      ];
+      const promptTemplates = ['Generate career advice for {{name}}'];
+      const outputColumnNames = ['career_advice'];
+      const csvFileId = 1;
+
+      // First query succeeds, second fails with auth error
+      vi.spyOn(LLMService, 'query')
+        .mockResolvedValueOnce('Great career ahead')
+        .mockRejectedValueOnce(new Error('API request failed with status 401 Unauthorized. {"error": "Invalid API key"}'));
+
+      // Mock storage.getProcessingStatus
+      vi.mocked(storage.getProcessingStatus).mockResolvedValue({
+        status: 'processing',
+        progress: 0,
+        processedRows: 0,
+        totalRows: 2
+      });
+
       // Act & Assert
       await expect(LLMService.processRows(rows, promptTemplates, outputColumnNames, csvFileId))
-        .rejects.toThrow('API rate limit exceeded');
+        .rejects.toThrow('Invalid API key');
       
       // Check error was logged
       expect(storage.addConsoleMessage).toHaveBeenCalledWith(
         csvFileId,
         expect.objectContaining({
           type: "error",
-          message: expect.stringContaining("API rate limit exceeded")
+          message: expect.stringContaining("Critical Error: Perplexity API Key is invalid")
         })
       );
       
@@ -191,7 +244,8 @@ describe('LLMService', () => {
       expect(storage.updateProcessingStatus).toHaveBeenCalledWith(
         csvFileId,
         expect.objectContaining({
-          status: 'error'
+          status: 'error',
+          error: expect.stringContaining('API key is invalid')
         })
       );
     });
