@@ -108,6 +108,14 @@ const createTestCsvData = (name: string) => {
           BatchCol: `Batch data ${i+1}` 
         }))
       };
+    case 'customer_data.csv':
+      return {
+        headers: ['CustomerID', 'FeedbackText'],
+        rows: [
+          { CustomerID: '1001', FeedbackText: 'Great service' },
+          { CustomerID: '1002', FeedbackText: 'Needs improvement' }
+        ]
+      };
     default:
       throw new Error(`Unknown test file: ${name}`);
   }
@@ -1397,6 +1405,107 @@ describe('Feature: Core Data Enrichment Workflow', () => {
       expect(enrichedCsv).toContain('Batch data 1,Analysis for batch 1');
       expect(enrichedCsv).toContain('Batch data 2,Analysis for batch 2');
       expect(enrichedCsv).toContain('Batch data 3,Analysis for batch 3');
+    });
+  });
+  
+  describe('Scenario: Downloading Enriched CSV File after Processing', () => {
+    it('should allow downloading the enriched CSV file after processing is complete', async () => {
+      // Given a processed CSV file
+      const csvFileName = 'customer_data.csv';
+      const csvData = createTestCsvData(csvFileName);
+      
+      // Mock the storage calls
+      vi.mocked(storage.getCsvFile).mockResolvedValue({
+        id: 1,
+        originalFilename: csvFileName,
+        filename: `processed_${csvFileName}`,
+        headers: csvData.headers,
+        rowCount: csvData.rows.length,
+        createdAt: new Date().toISOString()
+      });
+      
+      vi.mocked(storage.getCsvData).mockResolvedValue({
+        headers: csvData.headers,
+        rows: csvData.rows
+      });
+      
+      vi.mocked(storage.getProcessingStatus).mockResolvedValue({
+        status: 'completed',
+        progress: 100,
+        processedRows: csvData.rows.length,
+        totalRows: csvData.rows.length
+      });
+      
+      // Mock prompt configurations
+      vi.mocked(storage.getPromptConfigsByCsvFileId).mockResolvedValue([{
+        id: 1,
+        csvFileId: 1,
+        promptTemplate: 'Summarize: {{CustomerID}}',
+        outputColumnName: 'Summary',
+        createdAt: new Date().toISOString()
+      }]);
+      
+      // Mock processed data
+      const enrichedRows = csvData.rows.map(row => ({
+        ...row,
+        Summary: `Summary for ${row.CustomerID}`
+      }));
+      
+      // Mock the CSV generation function with specific CSV content
+      const csvContent = 'CustomerID,FeedbackText,Summary\n1001,Great service,Summary for 1001\n1002,Needs improvement,Summary for 1002';
+      vi.spyOn(CsvService, 'generateEnrichedCsv').mockResolvedValue(csvContent);
+      
+      // Mock LLM service to return the enriched rows
+      vi.spyOn(LLMService, 'processRows').mockResolvedValue(enrichedRows);
+      
+      // Create a mock request and response
+      const mockRequest = {
+        params: { csvFileId: '1' }
+      };
+      
+      const mockResponse = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+        send: vi.fn()
+      };
+      
+      // Import the routes module to directly test the download endpoint
+      const { registerRoutes } = await import('../../server/routes');
+      
+      // Create a mock Express app
+      const mockApp = {
+        get: (path, handler) => {
+          // If this is the download endpoint, execute the handler
+          if (path === '/api/download/:csvFileId') {
+            handler(mockRequest, mockResponse);
+          }
+        },
+        post: () => {},
+        use: () => {}
+      };
+      
+      // Register routes on our mock app
+      await registerRoutes(mockApp);
+      
+      // Then verify the response headers were set correctly
+      expect(mockResponse.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv');
+      expect(mockResponse.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        expect.stringContaining(`attachment; filename="enriched_${csvFileName}"`)
+      );
+      
+      // Then verify that CSV content was sent
+      expect(mockResponse.send).toHaveBeenCalledWith(csvContent);
+      
+      // Then verify that console message was logged
+      expect(storage.addConsoleMessage).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'info',
+          message: expect.stringContaining('Downloading enriched CSV')
+        })
+      );
     });
   });
 });
