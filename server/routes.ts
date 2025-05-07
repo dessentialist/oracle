@@ -672,7 +672,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         outputColumnNames,
         csvFileId
       );
-      const csvContent = await CsvService.generateEnrichedCsv(
+      
+      // Generate and save the enriched CSV
+      const { content: csvContent, filePath } = await CsvService.generateEnrichedCsv(
         csvFileId,
         enrichedRows
       );
@@ -687,7 +689,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log download action
       await storage.addConsoleMessage(csvFileId, {
         type: "info",
-        message: "Downloading enriched CSV...",
+        message: `Downloading enriched CSV from ${filePath}...`,
         timestamp: new Date().toISOString(),
       });
 

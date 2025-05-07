@@ -1453,7 +1453,10 @@ describe('Feature: Core Data Enrichment Workflow', () => {
       
       // Mock the CSV generation function with specific CSV content
       const csvContent = 'CustomerID,FeedbackText,Summary\n1001,Great service,Summary for 1001\n1002,Needs improvement,Summary for 1002';
-      vi.spyOn(CsvService, 'generateEnrichedCsv').mockResolvedValue(csvContent);
+      vi.spyOn(CsvService, 'generateEnrichedCsv').mockResolvedValue({
+        content: csvContent,
+        filePath: 'enriched/enriched_customer_data.csv'
+      });
       
       // Mock LLM service to return the enriched rows
       vi.spyOn(LLMService, 'processRows').mockResolvedValue(enrichedRows);

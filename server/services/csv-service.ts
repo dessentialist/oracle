@@ -94,9 +94,9 @@ export class CsvService {
    * Generate an enriched CSV with LLM responses
    * @param csvFileId The ID of the original CSV file
    * @param enrichedData The rows with added LLM response columns
-   * @returns The enriched CSV content as a string
+   * @returns The enriched CSV content as a string and the file path
    */
-  static async generateEnrichedCsv(csvFileId: number, enrichedData: Record<string, any>[]): Promise<string> {
+  static async generateEnrichedCsv(csvFileId: number, enrichedData: Record<string, any>[]): Promise<{ content: string; filePath: string }> {
     // Get original CSV file metadata
     const csvFile = await storage.getCsvFile(csvFileId);
     
@@ -119,7 +119,27 @@ export class CsvService {
       header: true,
     });
     
-    return csvString;
+    // Create a filename for the enriched CSV
+    const enrichedFilename = `enriched_${csvFile.originalFilename}`;
+    const enrichedFilePath = path.join('enriched', enrichedFilename);
+    
+    // Ensure the enriched directory exists
+    await fs.mkdir('enriched', { recursive: true });
+    
+    // Write the enriched CSV to file
+    await fs.writeFile(enrichedFilePath, csvString, 'utf8');
+    
+    // Log that the file was saved
+    await storage.addConsoleMessage(csvFileId, {
+      type: "info",
+      message: `Enriched CSV saved to ${enrichedFilePath}`,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return {
+      content: csvString,
+      filePath: enrichedFilePath
+    };
   }
   
   /**
