@@ -182,15 +182,29 @@ describe('CsvService', () => {
       vi.mocked(storage.getCsvFile).mockResolvedValue(mockCsvFile);
       vi.mocked(storage.getCsvData).mockResolvedValue(mockCsvData);
 
+      // Mock the fs/promises module
+      vi.mock('fs/promises', async () => {
+        const actual = await vi.importActual('fs/promises');
+        return {
+          ...actual,
+          mkdir: vi.fn().mockResolvedValue(undefined),
+          writeFile: vi.fn().mockResolvedValue(undefined)
+        };
+      });
+      
+      // Mock getPromptConfigsByCsvFileId
+      vi.mocked(storage.getPromptConfigsByCsvFileId).mockResolvedValue([]);
+      
       // Act
-      const result = await CsvService.generateEnrichedCsv(csvFileId, enrichedData);
+      const { content, filePath } = await CsvService.generateEnrichedCsv(csvFileId, enrichedData);
 
       // Assert
       expect(storage.getCsvFile).toHaveBeenCalledWith(csvFileId);
       expect(storage.getCsvData).toHaveBeenCalledWith(csvFileId);
-      expect(result).toContain('name,age,city,sentiment');
-      expect(result).toContain('John,30,New York,positive');
-      expect(result).toContain('Jane,25,San Francisco,neutral');
+      expect(content).toContain('name,age,city,sentiment');
+      expect(content).toContain('John,30,New York,positive');
+      expect(content).toContain('Jane,25,San Francisco,neutral');
+      expect(filePath).toContain('enriched/');
     });
 
     it('should throw an error when CSV file is not found', async () => {

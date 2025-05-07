@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PromptService } from '../../server/services/prompt-service';
 import { LLMService } from '../../server/services/llm-service';
+import { CsvService } from '../../server/services/csv-service';
 import { storage } from '../../server/storage';
 
 // Mock dependencies
@@ -9,6 +10,15 @@ vi.mock('../../server/services/llm-service', () => ({
     processRows: vi.fn(),
     fillPromptTemplate: vi.fn(),
     getAutocompleteSuggestions: vi.fn()
+  }
+}));
+
+vi.mock('../../server/services/csv-service', () => ({
+  CsvService: {
+    generateEnrichedCsv: vi.fn().mockResolvedValue({
+      content: 'header1,header2\nvalue1,value2',
+      filePath: 'enriched/test.csv'
+    })
   }
 }));
 
