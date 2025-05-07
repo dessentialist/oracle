@@ -1,0 +1,207 @@
+Feature: Core Data Enrichment Workflow
+As a user of Oracle, I want to upload a CSV, configure LLM prompts, process the data, and download the enriched results, so that I can efficiently augment my datasets.
+
+Background:
+Given the user is on the Oracle application page
+And the Perplexity LLM API is available and configured
+
+Scenario: Successful End-to-End Data Enrichment with a Single Prompt
+Given a CSV file named "contacts.csv" with columns "Name", "Company", "Inquiry" and 3 data rows
+| Name  | Company | Inquiry                         |
+| Alice | AlphaCo | Interested in product X.        |
+| Bob   | BetaInc | Need support for service Y.     |
+| Carol | GammaLLC| Question about pricing Z.       |
+When the user uploads "contacts.csv"
+Then the system should successfully parse the CSV and display column headers "Name", "Company", "Inquiry" as available for prompt templating
+When the user clicks "Configure Prompts"
+And the user defines a prompt "Generate a polite follow-up for {{Name}} from {{Company}} regarding their inquiry: '{{Inquiry}}'"
+And the user names the output column "FollowUpText"
+And the user clicks "Submit" in the Prompt Modal
+Then the main page console view should activate
+And the console should display "Sending: Generate a polite follow-up for Alice from AlphaCo regarding their inquiry: 'Interested in product X.'"
+And the console should display "Received: [LLM_Response_For_Alice]"
+And the console should display "Sending: Generate a polite follow-up for Bob from BetaInc regarding their inquiry: 'Need support for service Y.'"
+And the console should display "Received: [LLM_Response_For_Bob]"
+And the console should display "Sending: Generate a polite follow-up for Carol from GammaLLC regarding their inquiry: 'Question about pricing Z.'"
+And the console should display "Received: [LLM_Response_For_Carol]"
+And a message "Processing complete. 3 rows processed." should appear
+And the "Download Enriched CSV" button should become active
+When the user clicks "Download Enriched CSV"
+Then a CSV file should be downloaded
+And the downloaded CSV should contain the original columns "Name", "Company", "Inquiry" and their data
+And the downloaded CSV should contain a new column "FollowUpText" with the corresponding LLM responses for each row
+
+Scenario: File Upload Validation - Invalid File Type
+Given a non-CSV file named "document.txt"
+When the user attempts to upload "document.txt"
+Then an error message "Invalid file type. Please upload a CSV file." should be displayed
+And the "Configure Prompts" button should remain disabled
+
+Scenario: Prompt Configuration - Autocomplete for Column Names
+Given a CSV file named "leads.csv" has been successfully uploaded with columns "FirstName", "LastName", "Topic"
+When the user clicks "Configure Prompts"
+And the user types "{{" into "Prompt Box 1"
+Then autocomplete suggestions "FirstName", "LastName", "Topic" should appear
+When the user selects "FirstName" from autocomplete
+And types " tell me about "
+And types "{{"
+Then autocomplete suggestions "FirstName", "LastName", "Topic" should appear again
+When the user selects "Topic" from autocomplete
+Then "Prompt Box 1" should contain "{{FirstName}} tell me about {{Topic}}"
+
+Scenario: Data Enrichment with Multiple Prompts
+Given a CSV file named "feedback.csv" with columns "CustomerID", "FeedbackText" and 2 data rows
+| CustomerID | FeedbackText                      |
+| C001       | Love the new feature!             |
+| C002       | Confusing UI, hard to navigate.   |
+When the user uploads "feedback.csv"
+And the system successfully parses the CSV
+When the user clicks "Configure Prompts"
+And the user defines prompt 1 as "Summarize: {{FeedbackText}}" with output column "Summary"
+And the user clicks "Add Query"
+And the user defines prompt 2 as "Sentiment (Positive/Negative/Neutral): {{FeedbackText}}" with output column "Sentiment"
+And the user clicks "Submit" in the Prompt Modal
+Then the console should display "Sending: Summarize: Love the new feature!"
+And the console should display "Received: [LLM_Response_Summary_C001]"
+And the console should display "Sending: Sentiment (Positive/Negative/Neutral): Love the new feature!"
+And the console should display "Received: [LLM_Response_Sentiment_C001]"
+And the console should display "Sending: Summarize: Confusing UI, hard to navigate."
+And the console should display "Received: [LLM_Response_Summary_C002]"
+And the console should display "Sending: Sentiment (Positive/Negative/Neutral): Confusing UI, hard to navigate."
+And the console should display "Received: [LLM_Response_Sentiment_C002]"
+And a message "Processing complete. 2 rows processed." should appear
+And the "Download Enriched CSV" button should become active
+When the user clicks "Download Enriched CSV"
+Then a CSV file should be downloaded
+And the downloaded CSV should contain original columns and new columns "Summary" and "Sentiment" with LLM responses
+
+Scenario: Preview Functionality with Multiple Prompts
+Given a CSV file named "products.csv" with columns "ProductName", "Description" and 5 data rows
+When the user uploads "products.csv"
+And the system successfully parses the CSV
+When the user clicks "Configure Prompts"
+And the user defines prompt 1 as "Short ad copy for {{ProductName}}" with output column "AdCopy"
+And the user clicks "Add Query"
+And the user defines prompt 2 as "Keywords for {{Description}}" with output column "Keywords"
+And the user clicks "Preview Prompts"
+Then the system should send queries to Perplexity for the first 3 data rows for both prompts
+And a "Preview Box" should display the input data for the first 3 rows
+And the "Preview Box" should display corresponding LLM responses for "AdCopy" for the first 3 rows
+And the "Preview Box" should display corresponding LLM responses for "Keywords" for the first 3 rows
+And the main processing should not have started
+And the "Submit" button in the Prompt Modal should still be active
+
+Scenario: Preview Functionality with CSV having less than 3 data rows
+Given a CSV file named "short_list.csv" with columns "Item", "Category" and 1 data row
+| Item    | Category |
+| GadgetA | Tech     |
+When the user uploads "short_list.csv"
+And the system successfully parses the CSV
+When the user clicks "Configure Prompts"
+And the user defines prompt 1 as "Use of {{Item}} in {{Category}}" with output column "Usage"
+And the user clicks "Preview Prompts"
+Then the system should send queries to Perplexity for the 1 data row for the defined prompt
+And a "Preview Box" should display the input data for the 1 data row
+And the "Preview Box" should display corresponding LLM responses for "Usage" for the 1 data row
+
+Scenario: Real-time Processing - Pause and Resume
+Given a CSV file named "tasks.csv" with columns "TaskID", "Instruction" and 5 data rows is uploaded and parsed
+And the user has configured a prompt "Execute: {{Instruction}}" with output column "Result"
+And the user has clicked "Submit" in the Prompt Modal
+When processing for row 1 is complete and row 2 is being sent
+And the user clicks the "Pause" button
+Then the console should show that sending new queries is halted after row 2 (or any in-flight query) completes
+And the "Resume" button should become active, and "Pause" button inactive/disabled
+And after a few seconds, the user clicks the "Resume" button
+Then processing should continue from row 3
+And the console should display sending and receiving messages for rows 3, 4, and 5
+And a message "Processing complete. 5 rows processed." should appear
+And the "Download Enriched CSV" button should become active
+
+Scenario: Real-time Processing - Stop and Download Partial Results
+Given a CSV file named "batch.csv" with columns "ID", "Data" and 10 data rows is uploaded and parsed
+And the user has configured a prompt "Analyze: {{Data}}" with output column "Analysis"
+And the user has clicked "Submit" in the Prompt Modal
+When processing for row 4 is complete and row 5 is being sent
+And the user clicks the "Stop" button
+Then the console should show that processing is terminated
+And a message like "Processing stopped by user. 4 rows processed." should appear
+And the "Download Enriched CSV" button should become active
+When the user clicks "Download Enriched CSV"
+Then a CSV file should be downloaded
+And the downloaded CSV should contain the original data and the "Analysis" column for the first 4 rows
+And rows 5 through 10 should not have "Analysis" data (or the column might be present with empty values for these rows)
+
+Scenario: Handling LLM API No Response for a Specific Row
+Given a CSV file named "resilience_test.csv" with columns "Input" and 3 data rows
+| Input   |
+| Valid1  |
+| TriggerNoResp |
+| Valid2  |
+And the Perplexity LLM API is configured to not return a response for any query containing "TriggerNoResp"
+When the user uploads "resilience_test.csv"
+And the user defines a prompt "Process: {{Input}}" with output column "Output"
+And the user clicks "Submit" in the Prompt Modal
+Then the console should display "Sending: Process: Valid1"
+And the console should display "Received: [LLM_Response_For_Valid1]"
+And the console should display "Sending: Process: TriggerNoResp"
+And the console should display a warning like "Warning: No response for row 2, query 1. Moving to next."
+And the console should display "Sending: Process: Valid2"
+And the console should display "Received: [LLM_Response_For_Valid2]"
+And a message "Processing complete. 3 rows processed (1 with no LLM response)." should appear
+And the "Download Enriched CSV" button should become active
+When the user clicks "Download Enriched CSV"
+Then a CSV file should be downloaded
+And the downloaded CSV should contain "Output" for "Valid1" and "Valid2"
+And the "Output" for the row with "TriggerNoResp" should be empty or marked as "NO_RESPONSE"
+
+Scenario: Handling LLM API Error for a Specific Row
+Given a CSV file named "error_test.csv" with columns "Content" and 3 data rows
+| Content   |
+| GoodData1 |
+| CausesError|
+| GoodData2 |
+And the Perplexity LLM API is configured to return an error for any query containing "CausesError"
+When the user uploads "error_test.csv"
+And the user defines a prompt "Evaluate: {{Content}}" with output column "Evaluation"
+And the user clicks "Submit" in the Prompt Modal
+Then the console should display "Sending: Evaluate: GoodData1"
+And the console should display "Received: [LLM_Response_For_GoodData1]"
+And the console should display "Sending: Evaluate: CausesError"
+And the console should display an error message like "Error: LLM API error for row 2, query 1. Details: [API Error Details]. Moving to next."
+And the console should display "Sending: Evaluate: GoodData2"
+And the console should display "Received: [LLM_Response_For_GoodData2]"
+And a message "Processing complete. 3 rows processed (1 with LLM error)." should appear
+When the user clicks "Download Enriched CSV"
+Then a CSV file should be downloaded
+And the downloaded CSV should contain "Evaluation" for "GoodData1" and "GoodData2"
+And the "Evaluation" for the row with "CausesError" should be empty or marked as "API_ERROR"
+
+Scenario: Deleting an Added Query in Configuration Modal
+Given a CSV file named "simple.csv" has been successfully uploaded
+When the user clicks "Configure Prompts"
+And the user defines prompt 1 as "Prompt A {{Col1}}" with output column "OutA"
+And the user clicks "Add Query"
+And the user defines prompt 2 as "Prompt B {{Col2}}" with output column "OutB"
+And the user clicks "Add Query"
+And the user defines prompt 3 as "Prompt C {{Col3}}" with output column "OutC"
+And the user clicks the "Delete" button for "Prompt B" (query 2)
+Then "Prompt Box 2" and "Output Column Name 2" related to "Prompt B" should be removed
+And the remaining prompts should be "Prompt A" and "Prompt C"
+When the user clicks "Submit" in the Prompt Modal
+Then processing should only occur for "Prompt A" and "Prompt C"
+
+Scenario: Critical Error During Processing - Invalid API Key discovered mid-process
+Given a CSV file named "long_batch.csv" with 10 data rows is uploaded and parsed
+And the user has configured a valid prompt and output column
+And the user has clicked "Submit"
+And the Perplexity LLM API is initially responsive
+When processing for row 3 is complete
+And the system detects the Perplexity API key becomes invalid (e.g., API returns 401 for row 4)
+Then the console view should display a critical error message like "Critical Error: Perplexity API Key is invalid or revoked. Processing halted."
+And processing should stop immediately
+And the "Pause", "Resume" buttons should become inactive
+And the "Download Enriched CSV" button may become active to download results up to row 3 (if implemented this way for critical errors) or may not.
+And the main page should clearly indicate a critical failure state.
+
+These scenarios cover the primary interactions and flows defined in the PRD, focusing on how different parts of the system integrate to achieve user goals. They also include various success paths, optional paths (like preview), and error/exception handling. Remember that [LLM_Response_For_Alice], [API Error Details], etc., are placeholders for what the actual LLM or system would return, which would be mocked or asserted against in a real test execution environment.
