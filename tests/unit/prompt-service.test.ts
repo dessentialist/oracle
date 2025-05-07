@@ -13,14 +13,17 @@ vi.mock('../../server/services/llm-service', () => ({
   }
 }));
 
-vi.mock('../../server/services/csv-service', () => ({
-  CsvService: {
-    generateEnrichedCsv: vi.fn().mockResolvedValue({
-      content: 'header1,header2\nvalue1,value2',
-      filePath: 'enriched/test.csv'
-    })
-  }
-}));
+// Mock CsvService
+vi.mock('../../server/services/csv-service', () => {
+  return {
+    CsvService: {
+      generateEnrichedCsv: vi.fn().mockResolvedValue({
+        content: 'header1,header2\nvalue1,value2',
+        filePath: 'enriched/test.csv'
+      })
+    }
+  };
+});
 
 vi.mock('../../server/storage', () => ({
   storage: {
@@ -34,6 +37,12 @@ vi.mock('../../server/storage', () => ({
 describe('PromptService', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    
+    // Reset mocks with their default values
+    vi.mocked(CsvService.generateEnrichedCsv).mockResolvedValue({
+      content: 'header1,header2\nvalue1,value2',
+      filePath: 'enriched/test.csv'
+    });
   });
 
   describe('validatePromptTemplate', () => {

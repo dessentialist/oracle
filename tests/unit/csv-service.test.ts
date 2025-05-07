@@ -182,14 +182,12 @@ describe('CsvService', () => {
       vi.mocked(storage.getCsvFile).mockResolvedValue(mockCsvFile);
       vi.mocked(storage.getCsvData).mockResolvedValue(mockCsvData);
 
-      // Mock the fs/promises module
-      vi.mock('fs/promises', async () => {
-        const actual = await vi.importActual('fs/promises');
-        return {
-          ...actual,
+      // Mock fs methods globally
+      vi.stubGlobal('fs', {
+        promises: {
           mkdir: vi.fn().mockResolvedValue(undefined),
           writeFile: vi.fn().mockResolvedValue(undefined)
-        };
+        }
       });
       
       // Mock getPromptConfigsByCsvFileId
