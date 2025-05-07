@@ -1,0 +1,193 @@
+[[Oracle_PRD_v1_TDD]]
+**Product Requirements Document: Oracle**
+
+1. Introduction
+
+Oracle is a web application designed to streamline the process of enriching CSV data using Large Language Models (LLMs). Users can upload CSV files, define dynamic prompts based on column data, and execute these prompts against the Perplexity LLM via Langchain. The application provides real-time feedback and allows users to download the CSV augmented with the LLM's responses.
+
+**2. Goals & Objectives**
+
+- To provide a user-friendly interface for batch-querying an LLM with data from a CSV file.
+- To automate the process of generating individualized LLM prompts based on row-specific data.
+- To offer real-time monitoring and control over the querying process.
+- To enable users to easily integrate LLM-generated insights back into their original data format.
+- To provide a "preview" function for rapid prompt testing and iteration.
+
+**3. Target Audience**
+
+- Data analysts needing to enrich datasets with qualitative information.
+- Marketers looking to generate personalized content snippets or gather insights.
+- Researchers requiring automated data annotation or information retrieval based on structured data.
+- Anyone working with CSV data who could benefit from LLM augmentation without extensive coding.
+
+**4. Success Metrics**
+
+- High task completion rate (user successfully uploads, processes, and downloads CSV).
+- Time saved per user for data enrichment tasks.
+- User satisfaction scores (e.g., via feedback forms).
+- Number of files processed / queries run.
+- Low error rate during processing.
+
+**5. Tech Stack & Technical Considerations**
+
+- **Backend:** Python (Flask)
+- **Frontend:** React
+- **LLM Orchestration:** Langchain
+- **LLM Model API:** Perplexity
+- **Testing:**
+    - Linting: Pylint
+    - Unit Tests (TDD): Pytest
+    - Integration Tests (BDD): Selenium, Cucumber, Gherkin
+
+**6. User Stories**
+
+- **US1 (File Upload):** As a user, I want to easily upload a CSV file so that I can prepare my data for LLM processing.
+- **US2 (Field Recognition):** As a system, when a CSV is uploaded, I want to parse it and identify its column headers so that they can be used in prompt templating.
+- **US3 (Prompt Definition):** As a user, I want to define a prompt template using column names from my CSV (e.g., `{{column_name}}`) so that I can dynamically query the LLM for each row.
+- **US4 (Autocomplete):** As a user, when typing `{{` in the prompt box, I want to see auto-complete suggestions of available column names from my CSV so that I can accurately and quickly create my prompt.
+- **US5 (Multiple Queries):** As a user, I want the option to add multiple distinct queries/prompts to be run against each row so that I can gather different pieces of information simultaneously.
+- **US6 (Output Column Naming):** As a user, for each query I define, I want to specify the name of the new column that will store the LLM's responses in the output CSV so that my results are clearly labeled.
+- **US7 (Preview):** As a user, I want to run my defined query(s) on a small subset of my data (e.g., the first 3 rows) and see a preview of the LLM's responses so that I can quickly validate and refine my prompts before full processing.
+- **US8 (Query Submission):** As a user, I want to submit my configured queries so that the LLM processing can begin.
+- **US9 (Real-time Monitoring):** As a user, I want to see a real-time console view of the queries being sent and the responses received so that I can monitor the progress and identify any immediate issues.
+- **US10 (Process Control - Pause):** As a user, I want to be able to pause the ongoing querying process so that I can temporarily halt operations if needed.
+- **US11 (Process Control - Resume):** As a user, I want to be able to resume a paused querying process so that it continues from where it left off.
+- **US12 (Process Control - Stop):** As a user, I want to be able to stop the querying process completely so that I can terminate it if it's not yielding desired results or if I need to make significant changes.
+- **US13 (Handling No Response):** As a system, if the LLM API does not provide a response for a specific query/row, I want to flag this event in the console view and move to the next query/row without halting the entire process.
+- **US14 (Result Appending):** As a system, I want to append the LLM's response for each query as a new column to the corresponding row in the dataset so that the results are tied to the input data.
+- **US15 (Download Output):** As a user, I want to download the processed CSV file, which includes the original data plus the new column(s) containing the LLM responses, so that I can use the enriched data.
+- **US16 (Error Display):** As a user, if an error occurs during processing, I want to see a clear message in the console view explaining the issue so that I can troubleshoot or report it.
+
+**7. User Flows**
+
+**Flow 7.1: Main Data Enrichment Flow**
+
+1. **Start:** User lands on the Oracle application page.
+2. **Upload CSV:**
+    - User clicks "Upload CSV" button.
+    - User selects a CSV file from their local system.
+    - System validates file type. On success, parses CSV headers. On failure, shows an error.
+3. **Configure Queries (Prompt Modal):**
+    - User clicks "Configure Prompts" (or similar) opening a modal.
+    - **Query 1:**
+        - User types their prompt into "Prompt Box 1", using `{{column_name}}` for dynamic insertion. Autocomplete suggests column names when `{{` is typed.
+        - User types the desired "Output Column Name 1" for this query's results.
+    - **(Optional) Add More Queries:**
+        - User clicks "Add Query".
+        - A new "Prompt Box N" and "Output Column Name N" field appear. User configures them.
+        - User can delete added queries.
+4. **(Optional) Preview Queries:**
+    - User clicks "Preview Prompts".
+    - System takes the first 3 data rows (after headers) from the CSV.
+    - System constructs and sends queries to Perplexity for these 3 rows for _all_ defined prompts.
+    - System displays the input data and corresponding LLM responses for these 3 rows in a "Preview Box" or section of the modal.
+5. **Submit Queries:**
+    - User clicks "Submit" in the Prompt Modal. Modal closes.
+6. **Real-time Processing & Monitoring:**
+    - The main page displays a "Console View".
+    - System iterates through CSV rows (row 2 onwards). For each row:
+        - For each configured query template:
+            - Dynamically inserts row values into the prompt.
+            - Sends the finalized prompt to Perplexity via Langchain.
+            - Displays "Sending: [Formatted Query]" in the console.
+            - On receiving a response: Displays "Received: [LLM Response]" in the console. Appends response to an internal data structure for the new column.
+            - If no response/API error: Displays "Warning/Error: No response for row X, query Y. [Details if any]" in the console. Moves to the next.
+    - "Pause," "Resume," and "Stop" buttons are active.
+        - **Pause:** Halts sending new queries. In-flight queries may complete.
+        - **Resume:** Continues processing from the last processed row.
+        - **Stop:** Terminates the entire process. Partial results up to the stop point may be available for download.
+7. **Process Completion:**
+    - Once all rows/queries are processed or the process is stopped, a "Download Enriched CSV" button becomes active.
+    - A summary message (e.g., "Processing complete. X rows processed.") appears.
+8. **Download Output:**
+    - User clicks "Download Enriched CSV".
+    - System generates a new CSV file containing original data + new column(s) with LLM responses.
+    - The file is downloaded to the user's system.
+9. **Error Handling (General):**
+    - If a critical error stops the process (e.g., API key invalid, unrecoverable CSV parsing error), a clear error message is displayed in the console or as a notification.
+
+**8. Features (Modular Breakdown)**
+
+This section reframes your features into logical modules, which can guide development.
+
+8.1. Module: File Handling & Preparation
+
+* F1: CSV Upload Interface: UI component for file selection.
+
+* F2: CSV Parser & Validator: Backend logic to parse CSV content, extract headers, and validate basic structure.
+
+* F3: Data Staging: Temporary in-memory or disk storage for uploaded data during processing.
+
+8.2. Module: Prompt Engineering UI
+
+* F4: Prompt Configuration Modal: UI container for defining queries.
+
+* F4.1: Dynamic Prompt Input: Text area for prompt entry with {{variable}} syntax.
+
+* F4.2: Column Autocomplete: JS logic to suggest CSV column headers within the prompt input.
+
+* F4.3: Output Column Naming: Input field for specifying the header of the new results column.
+
+* F4.4: Multi-Query Management: UI elements to add/delete individual query configurations (prompt + output column name).
+
+* F5: Preview Functionality Trigger: Button to initiate the preview.
+
+8.3. Module: Query Orchestration Engine (Backend)
+
+* F6: Row Iterator: Logic to iterate through CSV rows (skipping header).
+
+* F7: Dynamic Prompt Builder: Service to populate prompt templates with data from the current row for each configured query.
+
+* F8: LLM API Integration (Perplexity via Langchain): Service to manage API calls, including authentication and request formatting.
+
+* F9: Asynchronous Task Management: Handles queuing and execution of potentially numerous API calls.
+
+* F10: State Management for Processing: Tracks current row, progress, and handles pause/resume/stop commands.
+
+* F11: Preview Query Executor: Logic to process only the first N rows for the preview feature.
+
+8.4. Module: Real-time Feedback & Control UI
+
+* F12: Console View: UI component to display real-time logs of queries, responses, warnings, and errors.
+
+* F13: Process Control Buttons: UI buttons for "Pause," "Resume," "Stop."
+
+* F14: Progress Indicator: Visual feedback on processing progress (e.g., rows processed / total rows). (Implicit, good to add)
+
+8.5. Module: Results Management & Output
+
+* F15: Results Aggregation: Backend logic to append LLM responses as new columns to the staged data.
+
+* F16: Enriched CSV Generation: Service to compile the original data and new results into a downloadable CSV format.
+
+* F17: Download Trigger: UI button to initiate the download of the final CSV.
+
+* F18: Preview Results Display: UI component within the modal to show preview data and LLM responses.
+
+8.6. Module: Error Handling & Logging
+
+* F19: API Error Handling: Logic to catch errors from the Perplexity API, log them, and decide on action (e.g., skip row, retry).
+
+* F20: Application Event Logging: Backend logging for significant events, errors, and user actions for debugging and monitoring.
+
+* F21: User-Facing Error Messages: Clear, concise error messages displayed in the UI (console or notifications).
+
+**9. Non-Functional Requirements**
+
+- **NFR1 (Performance):** The application should handle CSV files of moderate size (e.g., up to 10,000 rows, TBD) without significant slowdown. API calls should be managed efficiently to avoid hitting rate limits aggressively.
+- **NFR2 (Usability):** The interface must be intuitive, requiring minimal instruction for a user familiar with CSV files and basic prompt concepts.
+
+
+**10. Future Considerations (Out of Scope for v1)**
+
+- Support for other file formats (Excel, JSON).
+- Saving/loading prompt templates.
+- User accounts and processing history.
+- Batching API calls for efficiency.
+- Advanced error recovery options (e.g., retry specific failed rows).
+- More sophisticated preview options (e.g., select specific rows for preview).
+- Rate limiting awareness and handling.
+
+
+
+---

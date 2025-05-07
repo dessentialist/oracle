@@ -1,0 +1,741 @@
+
+[[Oracle_PRD_v1]]
+US1: File Upload
+
+As a user, I want to easily upload a CSV file so that I can prepare my data for LLM processing.
+
+- **Target Module(s)/Function(s):** `file_handler.process_uploaded_csv(file_stream)`
+- **Notes:** These tests focus on the initial handling and validation of the uploaded file stream by the backend.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US1_T01|Test successful upload of a valid CSV file.|A mock file stream containing valid CSV data (e.g., `name,email\nAlice,a@b.com`).|Returns a success indicator and perhaps a temporary file path or parsed representation (headers only for US2).|Positive|
+|US1_T02|Test upload of an empty CSV file.|A mock file stream representing an empty CSV file.|Returns an error/validation message indicating the file is empty or invalid.|Negative|
+|US1_T03|Test upload of a file that is not a CSV.|A mock file stream with content of a non-CSV type (e.g., a PNG file, plain text).|Returns an error/validation message indicating an invalid file type. (Based on content sniffing or extension).|Negative|
+|US1_T04|Test upload of a very large CSV file (simulate potential memory issues).|A mock file stream representing a large CSV (within reasonable unit test limits, mock size).|Processes successfully (if chunking is implemented) or handles gracefully if size limits are exceeded.|Edge Case|
+|US1_T05|Test upload of a CSV file with non-UTF-8 encoding (if UTF-8 is required).|A mock file stream with CSV data encoded in non-UTF-8 (e.g., ISO-8859-1).|Returns an error about encoding if not handled, or correctly decodes if supported.|Negative|
+|US1_T06|Test upload with no file provided (e.g., form submitted without a file).|`None` or an empty file object passed to the handler.|Returns an error indicating no file was provided.|Negative|
+
+---
+
+US2: Field Recognition
+
+As a system, when a CSV is uploaded, I want to parse it and identify its column headers so that they can be used in prompt templating.
+
+- **Target Module(s)/Function(s):** `csv_parser.extract_headers(csv_file_stream)`
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US2_T01|Test header extraction from a standard CSV.|CSV data: `"Name,Email,Age\nAlice,a@b.com,30"`|Returns `['Name', 'Email', 'Age']`.|Positive|
+|US2_T02|Test header extraction from a CSV with quoted headers.|CSV data: `"""First Name"","Last Name""\nBob,Smith"`|Returns `['First Name', 'Last Name']`.|Positive|
+|US2_T03|Test header extraction from a CSV with spaces around headers.|CSV data: `" Name ", "Email "\nAlice,a@b.com`|Returns `['Name', 'Email']` (assuming trimming).|Positive|
+|US2_T04|Test header extraction from a CSV with a single column.|CSV data: `"Product\nLaptop"`|Returns `['Product']`.|Positive|
+|US2_T05|Test header extraction from an empty CSV (only headers, no data rows).|CSV data: `"ID,Value"`|Returns `['ID', 'Value']`.|Edge Case|
+|US2_T06|Test header extraction from a CSV with empty header fields.|CSV data: `"Name,,Age\nAlice,,30"`|Returns `['Name', '', 'Age']` or handles as an error, depending on requirements.|Edge Case|
+|US2_T07|Test header extraction from a CSV with duplicate header names.|CSV data: `"Name,Email,Name\nAlice,a@b.com,Smith"`|Returns `['Name', 'Email', 'Name']` (system might later warn user or de-duplicate).|Edge Case|
+|US2_T08|Test handling of a CSV file with no header row (if identifiable).|CSV data: `Alice,a@b.com,30\nBob,b@c.com,25` (and system expects headers)|Returns an error or an empty list, or attempts to infer (e.g., `['col1', 'col2']`).|Negative|
+
+---
+
+US3: Prompt Definition
+
+As a user, I want to define a prompt template using column names from my CSV (e.g., {{column_name}}) so that I can dynamically query the LLM for each row.
+
+- **Target Module(s)/Function(s):** `prompt_service.validate_prompt_template(prompt_string, available_headers)`
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US3_T01|Test a valid prompt template with existing column names.|Prompt: `"Tell me about {{Name}} who works as {{Role}}."`, Headers: `['Name', 'Role']`|Returns `True` (or no error).|Positive|
+|US3_T02|Test a prompt template with a non-existent column name.|Prompt: `"Details for {{Product}} (ID: {{ProductID}})."`, Headers: `['Product']`|Returns `False` (or an error message: "Invalid column name: {{ProductID}}").|Negative|
+|US3_T03|Test a prompt template with no dynamic fields.|Prompt: `"Summarize this document."`, Headers: `['Name', 'Content']`|Returns `True`.|Positive|
+|US3_T04|Test a prompt template with mixed case column names (if matching is case-insensitive).|Prompt: `"Analyze {{customerName}}."`, Headers: `['CustomerName']`|Returns `True` (if matching is case-insensitive as a design choice).|Edge Case|
+|US3_T05|Test a prompt template with improperly formatted placeholders (e.g., `{Name}`).|Prompt: `"Query: {Name}"`, Headers: `['Name']`|Returns `False` (or an error message: "Invalid placeholder format: {Name}. Use {{Name}}.").|Negative|
+|US3_T06|Test an empty prompt template.|Prompt: `""`, Headers: `['Name']`|Returns `False` (or an error: "Prompt cannot be empty.").|Negative|
+|US3_T07|Test prompt template with special characters in column names (if supported).|Prompt: `"Value of {{Field A}}."`, Headers: `['Field A', 'Field B']`|Returns `True`.|Edge Case|
+|US3_T08|Test prompt template with only whitespace.|Prompt: `" "`, Headers: `['Name']`|Returns `False` (or an error: "Prompt cannot be empty/whitespace.").|Negative|
+
+---
+
+US4: Autocomplete
+
+As a user, when typing {{ in the prompt box, I want to see auto-complete suggestions of available column names from my CSV so that I can accurately and quickly create my prompt.
+
+- **Target Module(s)/Function(s):** `prompt_service.get_autocomplete_suggestions(partial_input, available_headers)`
+- **Notes:** This tests the backend logic that would supply suggestions to the frontend.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US4_T01|Test autocomplete with partial column name after `{{`.|Partial: `"{{Na"`, Headers: `['Name', 'Age', 'Nationality']`|Returns `['Name', 'Nationality']`.|Positive|
+|US4_T02|Test autocomplete with `{{` only.|Partial: `"{{`, Headers: `['Name', 'Age', 'Email']`|Returns `['Name', 'Age', 'Email']` (all headers).|Positive|
+|US4_T03|Test autocomplete with no matching partial name.|Partial: `"{{Xyz"`, Headers: `['Name', 'Age']`|Returns `[]` (empty list).|Positive|
+|US4_T04|Test autocomplete when not in `{{...}}` context.|Partial: `"Hello Na"`, Headers: `['Name', 'Age']`|Returns `[]` (or handles as no suggestion needed).|Edge Case|
+|US4_T05|Test autocomplete with empty headers list.|Partial: `"{{Na"`, Headers: `[]`|Returns `[]`.|Edge Case|
+|US4_T06|Test autocomplete with case sensitivity (if applicable).|Partial: `"{{na"`, Headers: `['Name', 'Age']`. If case-sensitive, returns `[]`.|Returns `['Name']` (if case-insensitive matching for suggestions is desired).|Edge Case|
+|US4_T07|Test autocomplete with text before `{{`.|Partial: `"Describe the {{Pro"`, Headers: `['Product', 'Price']`|Returns `['Product']`.|Positive|
+
+---
+
+US5: Multiple Queries
+
+As a user, I want the option to add multiple distinct queries/prompts to be run against each row so that I can gather different pieces of information simultaneously.
+
+- **Target Module(s)/Function(s):** `query_manager.add_query_config(session_id, prompt_template, output_column_name)`, `query_manager.get_query_configs(session_id)`
+- **Notes:** Tests the backend's ability to store and manage a list of query configurations for a user session.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US5_T01|Test adding a single valid query configuration.|`prompt_template="Summary of {{text}}", output_column_name="Summary"`|Query config is added. `get_query_configs` returns a list with one item.|Positive|
+|US5_T02|Test adding multiple distinct query configurations.|1. Prompt: `"Sentiment for {{review}}", Output: "Sentiment"`&lt;br>2. Prompt: `"Keywords for {{review}}", Output: "Keywords"`|Both configs are added. `get_query_configs` returns a list with two items.|Positive|
+|US5_T03|Test adding a query with a duplicate output column name (if disallowed).|1. Prompt: `"P1 {{col}}", Output: "Result"`&lt;br>2. Prompt: `"P2 {{col}}", Output: "Result"`|Second add operation fails or returns an error due to duplicate output column name.|Negative|
+|US5_T04|Test adding a query with an invalid prompt template (referencing US3 validation).|`prompt_template="Invalid {{non_existent_col}}", output_column_name="ErrorTest"` (assume `non_existent_col` is invalid)|Query config is not added, error returned.|Negative|
+|US5_T05|Test retrieving query configurations for a session.|Multiple queries added for `session_id`.|`get_query_configs` returns the correct list of prompt/output name pairs.|Positive|
+|US5_T06|Test retrieving configurations for a session with no queries defined.|No queries added for `session_id`.|`get_query_configs` returns an empty list.|Edge Case|
+
+---
+
+US6: Output Column Naming
+
+As a user, for each query I define, I want to specify the name of the new column that will store the LLM's responses in the output CSV so that my results are clearly labeled.
+
+- **Target Module(s)/Function(s):** `query_manager.add_query_config(..., output_column_name)` (validation part), `csv_writer.validate_output_column_name(name, existing_headers, other_output_names)`
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US6_T01|Test a valid, unique output column name.|Name: `"LLM_Response_1"`, Existing: `['A', 'B']`, Other Outputs: `[]`|Valid.|Positive|
+|US6_T02|Test an empty output column name.|Name: `""`|Invalid (error: "Output column name cannot be empty").|Negative|
+|US6_T03|Test an output column name that duplicates an existing CSV header.|Name: `"A"`, Existing: `['A', 'B']`, Other Outputs: `[]`|Invalid (error: "Output column name 'A' conflicts with existing CSV header.").|Negative|
+|US6_T04|Test an output column name that duplicates another _new_ output column name.|Name: `"NewCol"`, Existing: `['A']`, Other Outputs: `['NewCol']` (from a different prompt configuration in the same batch)|Invalid (error: "Output column name 'NewCol' is already used by another new query.").|Negative|
+|US6_T05|Test an output column name with special characters (if disallowed by CSV spec or system).|Name: `"Response,1"` or `"Response "Col""`|Invalid (error: "Output column name contains invalid characters.").|Negative|
+|US6_T06|Test a very long output column name (if there are practical limits).|Name: `"[a very long name...]"`|May be valid, or invalid if a length constraint exists.|Edge Case|
+|US6_T07|Test an output column name that is only whitespace.|Name: `" "`|Invalid (error: "Output column name cannot be empty or only whitespace.").|Negative|
+
+---
+
+US7: Preview
+
+As a user, I want to run my defined query(s) on a small subset of my data (e.g., the first 3 rows) and see a preview of the LLM's responses so that I can quickly validate and refine my prompts before full processing.
+
+- **Target Module(s)/Function(s):** `preview_service.generate_preview(csv_data_rows, query_configs, num_rows_to_preview, llm_client_mock)`
+- **Notes:** `llm_client_mock` will simulate Langchain/Perplexity calls. `csv_data_rows` are the parsed rows (not including header).
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US7_T01|Test preview with 1 query, 3 rows, sufficient data.|Data: 5 rows. Configs: 1. Preview rows: 3. LLM Mock: Returns "Response for [row data]" for each call.|Returns data for first 3 rows, each with 1 LLM response. LLM mock called 3 times.|Positive|
+|US7_T02|Test preview with 2 queries, 2 rows, sufficient data.|Data: 4 rows. Configs: 2. Preview rows: 2. LLM Mock: Returns "Response Q1/Q2 for [row data]".|Returns data for first 2 rows, each with 2 LLM responses. LLM mock called 4 times (2 rows * 2 queries).|Positive|
+|US7_T03|Test preview when `num_rows_to_preview` is greater than available data rows.|Data: 2 rows. Configs: 1. Preview rows: 3. LLM Mock: As above.|Returns data for all 2 available rows. LLM mock called 2 times.|Edge Case|
+|US7_T04|Test preview with 0 data rows.|Data: 0 rows. Configs: 1. Preview rows: 3.|Returns an empty result set or appropriate message. LLM mock not called.|Edge Case|
+|US7_T05|Test preview with no query configurations defined.|Data: 3 rows. Configs: []. Preview rows: 3.|Returns the first 3 data rows without any LLM responses, or an error message. LLM mock not called.|Edge Case|
+|US7_T06|Test preview when LLM mock returns an error for one call.|Data: 3 rows. Configs: 1. Preview rows: 3. LLM Mock: Returns "Success" for row 1 & 3, simulates API error for row 2.|Returns data for 3 rows. Row 1 & 3 have responses. Row 2 response is marked as "Error" or "No Response". Process continues for other rows.|Positive|
+|US7_T07|Test dynamic prompt building within preview (using `prompt_builder.build_prompt_for_row`).|Data: `[{'Name': 'Alice', 'City': 'NY'}]`. Config: `Prompt: "Info on {{Name}} from {{City}}."`. Preview rows: 1. LLM Mock: Expects prompt "Info on Alice from NY".|LLM mock receives the correctly formatted prompt. Result includes the row and LLM response.|Positive|
+|US7_T08|Test preview with `num_rows_to_preview` set to 0.|Data: 5 rows. Configs: 1. Preview rows: 0.|Returns an empty result set or appropriate message. LLM mock not called.|Edge Case|
+
+---
+
+US8: Query Submission
+
+As a user, I want to submit my configured queries so that the LLM processing can begin.
+
+- **Target Module(s)/Function(s):** `processing_service.start_processing(session_id, csv_data_rows, query_configs, llm_client_mock)`
+- **Notes:** This mainly tests the initiation of an asynchronous task. The actual processing loop is more complex.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US8_T01|Test successful submission with valid CSV data and query configs.|Valid `csv_data_rows` and `query_configs`.|Returns a task ID or success status. An asynchronous processing task is initiated. Processing state changes to 'running'.|Positive|
+|US8_T02|Test submission with no CSV data loaded.|`csv_data_rows` is empty or `None`.|Returns an error: "No CSV data loaded." Processing task is not initiated.|Negative|
+|US8_T03|Test submission with no query configurations defined.|`query_configs` is empty.|Returns an error: "No queries configured." Processing task is not initiated.|Negative|
+|US8_T04|Test submission when another process is already running for the session.|A process is already in 'running' or 'paused' state for the `session_id`.|Returns an error: "A process is already active for this session."|Negative|
+
+---
+
+US9: Real-time Monitoring
+
+As a user, I want to see a real-time console view of the queries being sent and the responses received so that I can monitor the progress and identify any immediate issues.
+
+- **Target Module(s)/Function(s):** `logging_service.log_event(session_id, event_type, message, details)` (or similar event publishing mechanism). The processing loop would call this.
+- **Notes:** Unit tests will verify that the correct log/event messages are generated by the processing logic.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs (during a mock processing step)**|**Expected Outcome (mocked logger/event listener receives)**|**Test Type**|
+|US9_T01|Test log generation when a query is sent.|Processing a row, about to send a query "Tell me about {{Name}}". Row data: `{'Name': 'Bob'}`.|Log event: `type='QUERY_SENT', message='Sending: Tell me about Bob'`|Positive|
+|US9_T02|Test log generation when a response is received.|LLM returns "Bob is a builder." for the previous query.|Log event: `type='RESPONSE_RECEIVED', message='Received: Bob is a builder.'`|Positive|
+|US9_T03|Test log generation for a warning (e.g., LLM no response, see US13).|LLM API call for row X, query Y results in no response.|Log event: `type='WARNING', message='No response for row X, query Y.'`|Positive|
+|US9_T04|Test log generation for an error during processing (e.g., unexpected API error, see US16).|LLM API returns a 500 server error for row Z, query A.|Log event: `type='ERROR', message='Error processing row Z, query A: Server Error 500'`|Positive|
+|US9_T05|Test log formatting to ensure clarity and required information.|Any log-generating event.|Log message is well-formatted, includes row index, query index (if multiple queries).|Positive|
+
+---
+
+US10: Process Control - Pause
+
+As a user, I want to be able to pause the ongoing querying process so that I can temporarily halt operations if needed.
+
+- **Target Module(s)/Function(s):** `processing_service.pause_processing(session_id)` or `state_manager.set_process_state(session_id, 'paused')`
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US10_T01|Test pausing a currently running process.|Process for `session_id` is 'running'.|Process state changes to 'paused'. New queries are not sent. Returns success.|Positive|
+|US10_T02|Test pausing a process that is already paused.|Process for `session_id` is 'paused'.|Process state remains 'paused'. Returns an indication that it was already paused or success.|Edge Case|
+|US10_T03|Test pausing a process that is stopped/completed.|Process for `session_id` is 'stopped' or 'completed'.|Returns an error or no-op: "Cannot pause a stopped/completed process."|Negative|
+|US10_T04|Test pausing a process that does not exist.|No active process for `session_id`.|Returns an error: "No active process to pause."|Negative|
+|US10_T05|Verify in-flight queries complete before full pause (if applicable).|Process 'running', 1 query in-flight, pause requested.|State becomes 'pausing' then 'paused' after in-flight query completes. (Requires more complex async task management testing, possibly mocked).|Edge Case|
+
+---
+
+US11: Process Control - Resume
+
+As a user, I want to be able to resume a paused querying process so that it continues from where it left off.
+
+- **Target Module(s)/Function(s):** `processing_service.resume_processing(session_id)` or `state_manager.set_process_state(session_id, 'running')`
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US11_T01|Test resuming a paused process.|Process for `session_id` is 'paused' (e.g., paused at row 10).|Process state changes to 'running'. Processing continues from the point it was paused (row 10). Returns success.|Positive|
+|US11_T02|Test resuming a process that is currently running.|Process for `session_id` is 'running'.|Process state remains 'running'. Returns an indication that it was already running or success.|Edge Case|
+|US11_T03|Test resuming a process that is stopped/completed.|Process for `session_id` is 'stopped' or 'completed'.|Returns an error: "Cannot resume a stopped/completed process."|Negative|
+|US11_T04|Test resuming a process that does not exist or was never started.|No active process for `session_id`, or process state is 'pending'.|Returns an error: "No paused process to resume."|Negative|
+|US11_T05|Verify resume point (e.g., correct row and query index).|Process paused after row 5, query 1 (of 2). Resume. Mock LLM calls.|Next LLM call is for row 5, query 2 (or row 6, query 1 if row 5 was fully completed for all queries before pause). Ensure no skipped/redone work.|Positive|
+
+---
+
+US12: Process Control - Stop
+
+As a user, I want to be able to stop the querying process completely so that I can terminate it if it's not yielding desired results or if I need to make significant changes.
+
+- **Target Module(s)/Function(s):** `processing_service.stop_processing(session_id)` or `state_manager.set_process_state(session_id, 'stopped')`
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US12_T01|Test stopping a currently running process.|Process for `session_id` is 'running'.|Process state changes to 'stopped'. All processing activities halt. Returns success. Partial results may be available.|Positive|
+|US12_T02|Test stopping a paused process.|Process for `session_id` is 'paused'.|Process state changes to 'stopped'. Returns success. Partial results available.|Positive|
+|US12_T03|Test stopping a process that is already stopped/completed.|Process for `session_id` is 'stopped' or 'completed'.|Process state remains as is. Returns an indication it was already stopped/completed or success.|Edge Case|
+|US12_T04|Test stopping a process that does not exist.|No active process for `session_id`.|Returns an error: "No active process to stop."|Negative|
+|US12_T05|Verify resources are cleaned up on stop (if applicable, e.g., temp files).|Process running, stop requested.|Any temporary resources associated with this specific run are cleaned up.|Edge Case|
+
+---
+
+US13: Handling No Response
+
+As a system, if the LLM API does not provide a response for a specific query/row, I want to flag this event in the console view and move to the next query/row without halting the entire process.
+
+- **Target Module(s)/Function(s):** Part of the main processing loop within `processing_service`, interacting with `llm_client_mock` and `logging_service`.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs (within processing loop)**|**Expected Outcome**|**Test Type**|
+|US13_T01|Test LLM API timeout for a query.|LLM mock for a specific row/query simulates a timeout (e.g., raises a timeout exception or returns a specific marker).|A "No Response" or timeout entry is logged for that row/query. The process continues to the next query or row. The overall process does not halt.|Positive|
+|US13_T02|Test LLM API returns an empty response (e.g., empty string or `None`).|LLM mock returns `None` or `""` for a specific row/query.|A "No Response" or "Empty Response" is logged. An empty string or specific placeholder is stored as the result for that cell. Process continues.|Positive|
+|US13_T03|Test LLM API returns a specific error code that means "no content" (e.g., 204).|LLM mock returns a specific HTTP status code or error object indicating no content.|A "No Response" or relevant message is logged. An empty string or placeholder is stored. Process continues.|Positive|
+|US13_T04|Test correct logging/flagging for the no-response event (referencing US9).|LLM returns no response for Row 3, Query 1.|Log service receives an event like: `type='WARNING', message='No response for row 3, query 1. Moving to next.'`|Positive|
+|US13_T05|Verify result data structure correctly reflects no response for that specific cell.|LLM returns no response for Row 3, Query 1. Query 1 output column is "Output1".|The internal data structure (and eventual CSV) for Row 3, column "Output1" should have an empty string or a defined placeholder (e.g., "N/A").|Positive|
+
+---
+
+US14: Result Appending
+
+As a system, I want to append the LLM's response for each query as a new column to the corresponding row in the dataset so that the results are tied to the input data.
+
+- **Target Module(s)/Function(s):** `results_aggregator.append_result(row_index, query_config_index, llm_response, staged_data_structure)`
+- **Notes:** `staged_data_structure` is the in-memory representation of the CSV data being augmented.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome**|**Test Type**|
+|US14_T01|Test appending a single LLM response to a row.|Row index: 0. Query config index: 0 (output column "Res1"). LLM Response: "LLM Answer". Staged data: `[{'ColA': 'ValA'}]` (initially).|Staged data for row 0 becomes `{'ColA': 'ValA', 'Res1': 'LLM Answer'}`.|Positive|
+|US14_T02|Test appending multiple LLM responses (from multiple queries) to a row.|Row index: 1. Query 0 ("Res1"): "Ans1". Query 1 ("Res2"): "Ans2". Staged data: `[..., {'ColB': 'ValB'}]`.|Staged data for row 1 becomes `{'ColB': 'ValB', 'Res1': 'Ans1', 'Res2': 'Ans2'}`.|Positive|
+|US14_T03|Test appending when LLM response is empty or None (handled by US13).|Row index: 2. Query config index: 0 ("ResEmpty"). LLM Response: `""` (or a placeholder like "N/A"). Staged data: `[..., ..., {'ColC': 'ValC'}]`.|Staged data for row 2 becomes `{'ColC': 'ValC', 'ResEmpty': ""}` (or "N/A").|Positive|
+|US14_T04|Test appending to the correct row index.|Appending to row index 5 in a dataset of 10 rows.|Only row 5 is modified. Other rows remain unchanged by this specific append operation.|Positive|
+|US14_T05|Test that original data in the row is preserved.|Row: `{'ID': 1, 'Data': 'Original'}`. Appending "NewData" to column "LLM_Out".|Row becomes `{'ID': 1, 'Data': 'Original', 'LLM_Out': 'NewData'}`. 'ID' and 'Data' are untouched.|Positive|
+|US14_T06|Test appending if the output column name was not previously defined (should not happen if US6 is enforced).|Row index: 0. Query config: (Prompt, "UndefinedCol"). LLM Response: "Data". Initial columns: `['A']`.|This scenario ideally indicates an earlier system error. The function might raise an error if "UndefinedCol" is not an expected new column based on query configurations.|Negative|
+
+---
+
+US15: Download Output
+
+As a user, I want to download the processed CSV file, which includes the original data plus the new column(s) containing the LLM responses, so that I can use the enriched data.
+
+- **Target Module(s)/Function(s):** `csv_writer.generate_enriched_csv(original_headers, new_column_headers, processed_data_rows)`
+- **Notes:** `processed_data_rows` is the list of dictionaries, each representing a row with original and new data.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs**|**Expected Outcome (CSV string content)**|**Test Type**|
+|US15_T01|Test generating CSV with original data and one new column.|Original Headers: `['ID', 'Name']`. New Headers: `['Summary']`. Data: `[{'ID':1, 'Name':'A', 'Summary':'SumA'}, {'ID':2, 'Name':'B', 'Summary':'SumB'}]`.|CSV string: `"ID,Name,Summary\n1,A,SumA\n2,B,SumB\n"`|Positive|
+|US15_T02|Test generating CSV with multiple new columns.|Original Headers: `['Product']`. New Headers: `['Feature1', 'Feature2']`. Data: `[{'Product':'X', 'Feature1':'F1X', 'Feature2':'F2X'}]`.|CSV string: `"Product,Feature1,Feature2\nX,F1X,F2X\n"`|Positive|
+|US15_T03|Test generating CSV when some LLM responses were empty/null.|Original Headers: `['Q']`. New Headers: `['Ans']`. Data: `[{'Q':'Q1', 'Ans':'Ans1'}, {'Q':'Q2', 'Ans':''}]`.|CSV string: `"Q,Ans\nQ1,Ans1\nQ2,\n"` (empty field for the second answer).|Positive|
+|US15_T04|Test generating CSV with no new columns (e.g., user ran no queries or all failed).|Original Headers: `['Data']`. New Headers: `[]`. Data: `[{'Data':'Val1'}]`.|CSV string: `"Data\nVal1\n"` (effectively the original CSV, or with empty new columns if headers were defined but no data).|Edge Case|
+|US15_T05|Test generating CSV with no data rows (only headers).|Original Headers: `['H1']`. New Headers: `['H_New']`. Data: `[]`.|CSV string: `"H1,H_New\n"`|Edge Case|
+|US15_T06|Test proper CSV quoting if data contains commas, quotes, or newlines.|Original Headers: `['Text']`. New Headers: `['LLM_Text']`. Data: `[{'Text':'Hello, world', 'LLM_Text':'"Hi",\nsaid the AI.'}]`.|CSV string: `"Text,LLM_Text\n""Hello, world"","""Hi"",\nsaid the AI."\n"` (or appropriate CSV escaping).|Positive|
+|US15_T07|Test that column order is preserved (original columns first, then new columns in defined order).|Original Headers: `['A', 'B']`. New Headers: `['N1', 'N2']` (defined in this order). Data: `[{'A':1, 'B':2, 'N1':'n1', 'N2':'n2'}]`.|CSV string headers: `"A,B,N1,N2\n..."`|Positive|
+
+---
+
+US16: Error Display
+
+As a user, if an error occurs during processing, I want to see a clear message in the console view explaining the issue so that I can troubleshoot or report it.
+
+- **Target Module(s)/Function(s):** `logging_service.log_error(session_id, user_facing_message, internal_details)` (or similar, called by various error-handling points in the application).
+- **Notes:** This is similar to US9 but focuses specifically on error messages that are user-facing.
+
+|   |   |   |   |   |
+|---|---|---|---|---|
+|**Test Case ID**|**Description**|**Preconditions/Inputs (simulated error condition)**|**Expected Outcome (mocked logger/event listener receives an error event)**|**Test Type**|
+|US16_T01|Test logging a critical API error from LLM (e.g., invalid API key).|LLM client mock raises an "AuthenticationError".|Log event: `type='ERROR', message='LLM API Error: Authentication failed. Please check your API key.'`|Positive|
+|US16_T02|Test logging an unrecoverable CSV parsing error.|`csv_parser` throws an exception due to a malformed critical part of the CSV.|Log event: `type='ERROR', message='Failed to parse CSV file: [specific, user-friendly detail]. Processing cannot continue.'`|Positive|
+|US16_T03|Test logging an unexpected internal server error.|A random function in the backend raises an unhandled `Exception`.|Log event: `type='ERROR', message='An unexpected error occurred. Please try again or contact support. Details: [error type/ID if available for support]'`|Positive|
+|US16_T04|Test that error messages are user-friendly and avoid technical jargon where possible.|An LLM API call returns a complex JSON error object.|The logged message for the user should be a simplified explanation, e.g., "LLM request failed for row X, query Y. Reason: [Simplified reason]."|Positive|
+|US16_T05|Test logging when a specific row/query fails catastrophically (but process might try to continue for others).|During processing row 7, query 2, a specific data conversion fails before calling LLM.|Log event: `type='ERROR', message='Error processing row 7, query 2: Invalid data format for prompt. Skipping this query.'` (assuming it doesn't halt everything)|Positive|
+|US16_T06|Test logging an error during the "Preview" phase.|Preview function encounters an LLM API error.|Log event (possibly scoped to preview): `type='ERROR', message='Preview failed: LLM API error. [Details]'`|Positive|
+
+---
+
+This comprehensive set of unit tests should provide a solid foundation for TDD of the Oracle application's backend. Remember to mock dependencies thoroughly, especially the Langchain/Perplexity client and any file system interactions.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+
+**General Notes for TDD:**
+
+- **Red-Green-Refactor:** Each test case below implies this cycle. Write a failing test (Red), write the minimal code to make it pass (Green), then refactor.
+- **Small Units:** Tests should be small and focused on a single piece of behavior.
+- **Naming Convention:** Test names should be descriptive of what they are testing. I'll use a `test_` prefix, common in Pytest.
+
+---
+
+US1: File Upload
+
+As a user, I want to easily upload a CSV file so that I can prepare my data for LLM processing.
+
+- **`test_upload_valid_csv_file_accepted`**
+    - **Given:** A valid CSV file (`test_data.csv` with appropriate content).
+    - **When:** The user selects this file and initiates an upload.
+    - **Then:** The system backend receives the file, validates its CSV MIME type, and stores it temporarily.
+    - **And:** The system returns a success response (e.g., HTTP 200 or 201 with a file ID or confirmation).
+- **`test_upload_non_csv_file_rejected`**
+    - **Given:** A non-CSV file (e.g., `image.jpg`, `document.txt`).
+    - **When:** The user attempts to upload this file.
+    - **Then:** The system rejects the file based on MIME type or extension.
+    - **And:** The system returns an error response (e.g., HTTP 400 or 415) with a message like "Invalid file type. Please upload a CSV file."
+- **`test_upload_empty_csv_file_handled`**
+    - **Given:** An empty CSV file (`empty.csv`).
+    - **When:** The user uploads this file.
+    - **Then:** The system accepts the file (it's still a CSV). (Handling of its content is for US2).
+    - **And:** Returns a success response.
+- **`test_upload_no_file_selected_error`**
+    - **Given:** The user is on the upload interface.
+    - **When:** The user clicks the "upload" button without selecting a file.
+    - **Then:** The frontend prevents the request, or the backend returns an error (e.g., HTTP 400) indicating no file was provided.
+- **`test_upload_file_exceeding_size_limit_rejected`** (Assuming a size limit, e.g., 10MB)
+    - **Given:** A CSV file larger than the defined maximum size.
+    - **When:** The user attempts to upload this file.
+    - **Then:** The system rejects the file.
+    - **And:** The system returns an error response (e.g., HTTP 413) with a message like "File size exceeds the maximum limit of X MB."
+
+---
+
+US2: Field Recognition
+
+As a system, when a CSV is uploaded, I want to parse it and identify its column headers so that they can be used in prompt templating.
+
+- **`test_parse_csv_with_headers_identifies_correct_headers`**
+    - **Given:** A CSV file content like `"Name,Email,Product\nAlice,a@b.com,Widget"` has been successfully uploaded.
+    - **When:** The system parses the uploaded CSV.
+    - **Then:** The system correctly identifies the headers as `["Name", "Email", "Product"]`.
+    - **And:** These headers are made available for prompt templating.
+- **`test_parse_csv_with_empty_headers_handled`**
+    - **Given:** A CSV file content like `",Email,\nAlice,a@b.com,Widget"` (first and third headers are empty).
+    - **When:** The system parses the uploaded CSV.
+    - **Then:** The system identifies headers, potentially replacing empty ones with defaults (e.g., `["_header1_", "Email", "_header2_"]`) or handling as defined.
+- **`test_parse_csv_with_no_header_row_generates_default_headers`** (Assuming this is desired behavior. If not, it should be an error).
+    - **Given:** A CSV file content without a clear header row (e.g., just data, or a flag indicating no headers).
+    - **When:** The system parses the uploaded CSV.
+    - **Then:** The system generates default headers (e.g., `["Column1", "Column2", "Column3"]`) based on the number of columns in the first data row.
+- **`test_parse_csv_with_only_headers_and_no_data_rows_identifies_headers`**
+    - **Given:** A CSV file content like `"Name,Email,Product\n"`.
+    - **When:** The system parses the uploaded CSV.
+    - **Then:** The system correctly identifies the headers as `["Name", "Email", "Product"]`.
+- **`test_parse_empty_csv_file_results_in_no_headers`**
+    - **Given:** An empty CSV file content.
+    - **When:** The system parses the uploaded CSV.
+    - **Then:** The system identifies no headers (an empty list).
+- **`test_parse_csv_with_different_delimiters_if_supported`** (If autodetection or selection of delimiter is a feature)
+    - **Given:** A CSV file using a semicolon delimiter: `"Name;Email\nAlice;a@b.com"`.
+    - **When:** The system parses this CSV (with delimiter specified or auto-detected).
+    - **Then:** The system correctly identifies headers `["Name", "Email"]`.
+
+---
+
+US3: Prompt Definition
+
+As a user, I want to define a prompt template using column names from my CSV (e.g., {{column_name}}) so that I can dynamically query the LLM for each row.
+
+- **`test_define_prompt_with_valid_column_placeholders`**
+    - **Given:** CSV headers `["Name", "Product"]` are recognized.
+    - **When:** The user enters the prompt: `"Tell me more about {{Product}} for user {{Name}}."`.
+    - **Then:** The system accepts and stores this prompt template.
+- **`test_define_prompt_with_non_existent_column_placeholder_validation`**
+    - **Given:** CSV headers `["Name", "Product"]` are recognized.
+    - **When:** The user enters the prompt: `"Info for {{NonExistentColumn}}."`.
+    - **Then:** The system (ideally frontend validation) flags an error or warns that `{{NonExistentColumn}}` is not a valid header.
+- **`test_define_prompt_with_mismatched_braces_validation`**
+    - **Given:** CSV headers `["Name"]` are recognized.
+    - **When:** The user enters the prompt: `"Info for {{Name}."` or `"Info for {Name}}."`.
+    - **Then:** The system flags an error due to invalid template syntax.
+- **`test_define_empty_prompt_validation`**
+    - **Given:** CSV headers are recognized.
+    - **When:** The user attempts to save an empty prompt string.
+    - **Then:** The system flags an error or prevents saving.
+- **`test_define_prompt_with_no_placeholders_is_valid`**
+    - **Given:** CSV headers are recognized.
+    - **When:** The user enters the prompt: `"Tell me a fun fact."`.
+    - **Then:** The system accepts and stores this prompt template (it will be the same for every row).
+
+---
+
+US4: Autocomplete
+
+As a user, when typing {{ in the prompt box, I want to see auto-complete suggestions of available column names from my CSV so that I can accurately and quickly create my prompt.
+
+- **`test_autocomplete_shows_column_names_after_typing_double_curly_brace`**
+    - **Given:** CSV headers `["FirstName", "LastName", "Email"]` are recognized.
+    - **When:** The user types `{{` into the prompt definition input field.
+    - **Then:** An autocomplete dropdown appears showing `FirstName`, `LastName`, `Email`.
+- **`test_autocomplete_filters_suggestions_as_user_types`**
+    - **Given:** CSV headers `["FirstName", "LastName", "Email"]` are recognized.
+    - **When:** The user types `{{L` into the prompt definition input field.
+    - **Then:** The autocomplete dropdown shows `LastName`.
+- **`test_autocomplete_inserts_selected_column_name_correctly`**
+    - **Given:** CSV headers `["FirstName"]` are recognized, and autocomplete is active after `{{`.
+    - **When:** The user selects `FirstName` from the autocomplete suggestions.
+    - **Then:** The prompt input field contains `{{FirstName}}`.
+- **`test_autocomplete_does_not_trigger_if_no_csv_loaded_or_no_headers`**
+    - **Given:** No CSV has been uploaded, or the uploaded CSV has no headers.
+    - **When:** The user types `{{` into the prompt definition input field.
+    - **Then:** No autocomplete dropdown appears.
+- **`test_autocomplete_handles_column_names_with_spaces_or_special_chars`** (If column names can have them)
+    - **Given:** CSV header `["Product Name"]` is recognized.
+    - **When:** The user types `{{` and selects `Product Name`.
+    - **Then:** The prompt input field contains `{{Product Name}}`.
+
+---
+
+US5: Multiple Queries
+
+As a user, I want the option to add multiple distinct queries/prompts to be run against each row so that I can gather different pieces of information simultaneously.
+
+- **`test_add_first_query_successfully`**
+    - **Given:** No queries defined yet.
+    - **When:** The user defines a valid prompt (e.g., `"Summary of {{description}}"`) and an output column name (e.g., `"SummaryOutput"`).
+    - **And:** The user clicks "Add Query".
+    - **Then:** The query is added to a list of queries to be executed.
+- **`test_add_second_distinct_query_successfully`**
+    - **Given:** One query `"Q1"` with output `"Out1"` already exists.
+    - **When:** The user defines a new valid prompt (`"Q2"`) and output column (`"Out2"`) and clicks "Add Query".
+    - **Then:** The second query is added to the list, and both `"Q1"` and `"Q2"` are present.
+- **`test_attempt_to_add_query_with_duplicate_output_column_name_prevented_or_warned`**
+    - **Given:** One query `"Q1"` with output `"Out1"` already exists.
+    - **When:** The user tries to add another query (even if different prompt) with the same output column name `"Out1"`.
+    - **Then:** The system prevents adding or issues a warning and requires a unique output column name.
+- **`test_remove_a_query_from_multiple_queries`**
+    - **Given:** Two queries `"Q1"` (output `"Out1"`) and `"Q2"` (output `"Out2"`) exist.
+    - **When:** The user removes query `"Q1"`.
+    - **Then:** Only query `"Q2"` remains in the list of queries.
+
+---
+
+US6: Output Column Naming
+
+As a user, for each query I define, I want to specify the name of the new column that will store the LLM's responses in the output CSV so that my results are clearly labeled.
+
+- **`test_define_output_column_name_for_a_query`**
+    - **Given:** User is defining a prompt.
+    - **When:** The user enters `"LLM_Response_Topic"` in the "Output Column Name" field for that prompt.
+    - **Then:** The system associates `"LLM_Response_Topic"` with that specific prompt.
+- **`test_define_output_column_name_with_spaces_and_special_chars_if_allowed`**
+    - **Given:** User is defining a prompt.
+    - **When:** The user enters `"LLM Response (Topic)"` as the output column name.
+    - **Then:** The system accepts and stores this name (or sanitizes/validates it based on CSV naming rules).
+- **`test_validation_for_empty_output_column_name`**
+    - **Given:** User is defining a prompt.
+    - **When:** The user leaves the "Output Column Name" field empty and tries to save/add the query.
+    - **Then:** The system shows an error message "Output column name cannot be empty."
+- **`test_validation_for_output_column_name_colliding_with_existing_input_csv_header`**
+    - **Given:** Input CSV has a column named `"Description"`.
+    - **When:** The user tries to set `"Description"` as the output column name for a new LLM query.
+    - **Then:** The system shows a warning/error: "Output column name conflicts with an existing input column."
+
+---
+
+US7: Preview
+
+As a user, I want to run my defined query(s) on a small subset of my data (e.g., the first 3 rows) and see a preview of the LLM's responses so that I can quickly validate and refine my prompts before full processing.
+
+- **`test_preview_processes_first_n_rows_with_single_query`** (e.g., N=3)
+    - **Given:** A CSV with 5 rows is loaded. One prompt `"Analyze {{Data}}"` with output column `"Analysis"` is defined.
+    - **And:** A mock LLM is set up to return predictable responses.
+    - **When:** The user clicks "Preview".
+    - **Then:** The system processes the first 3 rows using the prompt.
+    - **And:** The preview displays the original 3 rows plus the new `"Analysis"` column with mock LLM responses.
+- **`test_preview_processes_all_rows_if_less_than_n`**
+    - **Given:** A CSV with 2 rows is loaded. One prompt is defined.
+    - **When:** The user clicks "Preview" (where N=3).
+    - **Then:** The system processes both 2 rows.
+    - **And:** The preview displays these 2 rows with the LLM responses.
+- **`test_preview_with_multiple_queries_shows_all_new_columns`**
+    - **Given:** A CSV with 3+ rows. Two prompts are defined: P1 -> OutCol1, P2 -> OutCol2.
+    - **And:** Mock LLM responses for both queries.
+    - **When:** The user clicks "Preview".
+    - **Then:** The preview displays the first N rows with both `OutCol1` and `OutCol2` populated.
+- **`test_preview_when_no_csv_loaded_shows_message`**
+    - **Given:** No CSV is loaded.
+    - **When:** The user clicks "Preview".
+    - **Then:** A message is displayed: "Please upload a CSV file first."
+- **`test_preview_when_no_queries_defined_shows_message`**
+    - **Given:** A CSV is loaded, but no queries are defined.
+    - **When:** The user clicks "Preview".
+    - **Then:** A message is displayed: "Please define at least one query."
+- **`test_preview_handles_llm_api_error_gracefully_for_a_row`**
+    - **Given:** CSV loaded, prompt defined. Mock LLM is set to return an error for the 2nd row.
+    - **When:** User clicks "Preview".
+    - **Then:** Preview shows results for row 1 and 3, and an error indicator/empty value for row 2's LLM response.
+
+---
+
+US8: Query Submission
+
+As a user, I want to submit my configured queries so that the LLM processing can begin.
+
+- **`test_submit_valid_configuration_starts_processing`**
+    - **Given:** A CSV is uploaded, headers recognized, at least one valid prompt with output column name is defined. Valid Perplexity API key is configured (server-side).
+    - **When:** The user clicks "Start Processing".
+    - **Then:** The system initiates the batch processing job.
+    - **And:** The system state changes to "Processing".
+- **`test_submit_with_no_csv_loaded_shows_error`**
+    - **Given:** No CSV is loaded.
+    - **When:** The user clicks "Start Processing".
+    - **Then:** An error message "Please upload a CSV file." is displayed, and processing does not start.
+- **`test_submit_with_no_queries_defined_shows_error`**
+    - **Given:** A CSV is loaded, but no queries are defined.
+    - **When:** The user clicks "Start Processing".
+    - **Then:** An error message "Please define at least one query." is displayed, and processing does not start.
+- **`test_submit_with_invalid_api_key_if_checked_before_processing_shows_error`** (Backend check)
+    - **Given:** Valid CSV and queries, but an invalid/missing Perplexity API key is detected by the backend.
+    - **When:** The user clicks "Start Processing".
+    - **Then:** The system shows an error message "Invalid or missing Perplexity API Key." and processing does not start.
+
+---
+
+US9: Real-time Monitoring
+
+As a user, I want to see a real-time console view of the queries being sent and the responses received so that I can monitor the progress and identify any immediate issues.
+
+- **`test_console_shows_query_sent_for_each_row_and_query`**
+    - **Given:** Processing has started for a CSV with 2 rows and 1 query: `Prompt: "Q for {{ColA}}"`. Row 1 `ColA`="Val1", Row 2 `ColA`="Val2".
+    - **When:** The system processes the first row.
+    - **Then:** The console view displays a message like: "Row 1/2: Sending query: Q for Val1".
+    - **When:** The system processes the second row.
+    - **Then:** The console view displays: "Row 2/2: Sending query: Q for Val2".
+- **`test_console_shows_response_received_for_each_row_and_query`**
+    - **Given:** Processing ongoing. Mock LLM returns "Resp1" for the first query.
+    - **When:** The system receives the LLM response for the first row.
+    - **Then:** The console view displays: "Row 1/2: Received response: Resp1".
+- **`test_console_shows_progress_percentage_or_count`**
+    - **Given:** Processing ongoing for a CSV with 10 rows.
+    - **When:** 5 rows have been processed.
+    - **Then:** The console view (or a progress bar) indicates "5/10 rows processed" or "50% complete".
+- **`test_console_shows_messages_for_multiple_queries_per_row`**
+    - **Given:** 2 queries (Q1, Q2) for each row. Processing row 1.
+    - **When:** System sends Q1 for row 1.
+    - **Then:** Console shows "Row 1/N (Query 1/2): Sending Q1...".
+    - **When:** System receives response for Q1 for row 1.
+    - **Then:** Console shows "Row 1/N (Query 1/2): Received Resp1...".
+    - **When:** System sends Q2 for row 1.
+    - **Then:** Console shows "Row 1/N (Query 2/2): Sending Q2...".
+
+---
+
+US10: Process Control - Pause
+
+As a user, I want to be able to pause the ongoing querying process so that I can temporarily halt operations if needed.
+
+- **`test_pause_button_stops_sending_new_queries`**
+    - **Given:** Processing is active, currently processing row 5 of 10.
+    - **When:** The user clicks "Pause".
+    - **Then:** The system completes any in-flight query for row 5.
+    - **And:** The system does not send a query for row 6.
+    - **And:** The system state changes to "Paused".
+- **`test_pause_button_disabled_or_has_no_effect_if_not_processing`**
+    - **Given:** Processing is not active (e.g., "Idle", "Completed", "Paused").
+    - **When:** The user clicks "Pause".
+    - **Then:** The system state remains unchanged, no error occurs.
+- **`test_console_reflects_paused_state`**
+    - **Given:** Processing was active and is now paused.
+    - **When:** State is "Paused".
+    - **Then:** The console displays a message like "Processing paused at row X."
+
+---
+
+US11: Process Control - Resume
+
+As a user, I want to be able to resume a paused querying process so that it continues from where it left off.
+
+- **`test_resume_button_continues_processing_from_next_row_or_query`**
+    - **Given:** Processing was paused after completing row 5, query 1 (out of 2 queries per row). CSV has 10 rows.
+    - **When:** The user clicks "Resume".
+    - **Then:** The system starts processing row 5, query 2.
+    - **And:** The system state changes back to "Processing".
+- **`test_resume_button_disabled_or_has_no_effect_if_not_paused`**
+    - **Given:** Processing is "Idle", "Processing", or "Completed".
+    - **When:** The user clicks "Resume".
+    - **Then:** The system state remains unchanged.
+- **`test_console_reflects_resumed_state`**
+    - **Given:** Processing was paused and is now resumed.
+    - **When:** State is "Processing" again.
+    - **Then:** The console displays a message like "Processing resumed." and continues logging new queries.
+
+---
+
+US12: Process Control - Stop
+
+As a user, I want to be able to stop the querying process completely so that I can terminate it if it's not yielding desired results or if I need to make significant changes.
+
+- **`test_stop_button_terminates_processing_immediately`**
+    - **Given:** Processing is active (or paused).
+    - **When:** The user clicks "Stop".
+    - **Then:** The system cancels any in-flight queries if possible.
+    - **And:** The system does not send any new queries.
+    - **And:** The system state changes to "Stopped" or "Cancelled".
+    - **And:** Partially processed data up to that point is retained (for potential download).
+- **`test_stop_button_disabled_or_has_no_effect_if_not_processing_or_paused`**
+    - **Given:** Processing is "Idle" or "Completed".
+    - **When:** The user clicks "Stop".
+    - **Then:** The system state remains unchanged.
+- **`test_console_reflects_stopped_state`**
+    - **Given:** Processing was active/paused and is now stopped.
+    - **When:** State is "Stopped".
+    - **Then:** The console displays a message like "Processing stopped by user."
+
+---
+
+US13: Handling No Response
+
+As a system, if the LLM API does not provide a response for a specific query/row, I want to flag this event in the console view and move to the next query/row without halting the entire process.
+
+- **`test_llm_no_response_for_a_row_is_logged_and_process_continues`**
+    - **Given:** Processing a CSV. Mock LLM is configured to return no response (or timeout) for row 2, query 1.
+    - **When:** The system attempts to get an LLM response for row 2, query 1.
+    - **Then:** The console view shows a message for row 2, query 1 like "No response received from LLM." or "LLM request timed out.".
+    - **And:** The corresponding cell in the output data for this query/row is marked (e.g., empty, "NO_RESPONSE", "ERROR_NO_RESPONSE").
+    - **And:** The system proceeds to the next query for row 2 (if any) or to row 3.
+    - **And:** The overall process is not halted.
+
+---
+
+US14: Result Appending
+
+As a system, I want to append the LLM's response for each query as a new column to the corresponding row in the dataset so that the results are tied to the input data.
+
+- **`test_llm_response_appended_as_new_column_to_correct_row`**
+    - **Given:** Input row data: `{"Name": "Alice", "Item": "Book"}`.
+    - **And:** A query with output column name `"Summary"`.
+    - **And:** Mock LLM returns `"This is a good book."` for this row's query.
+    - **When:** The system processes this row and query.
+    - **Then:** The internal representation of the row becomes `{"Name": "Alice", "Item": "Book", "Summary": "This is a good book."}`.
+- **`test_multiple_llm_responses_for_multiple_queries_appended_as_new_columns`**
+    - **Given:** Input row data: `{"Text": "Review"}`.
+    - **And:** Query 1 -> output `"Sentiment"`, LLM returns `"Positive"`.
+    - **And:** Query 2 -> output `"Keywords"`, LLM returns `"good, great"`.
+    - **When:** The system processes this row for both queries.
+    - **Then:** The internal row data becomes `{"Text": "Review", "Sentiment": "Positive", "Keywords": "good, great"}`.
+- **`test_original_data_and_column_order_preserved`**
+    - **Given:** Input CSV has columns `A, B, C` in that order.
+    - **And:** New LLM output columns are `X, Y`.
+    - **When:** Processing is complete.
+    - **Then:** The output data structure has columns in an order like `A, B, C, X, Y`.
+- **`test_cell_for_no_llm_response_is_empty_or_marked_appropriately`**
+    - **Given:** Input row data, one query with output column `"LLM_Out"`.
+    - **And:** LLM provides no response for this row/query (US13).
+    - **When:** The system processes this row.
+    - **Then:** The internal row data is `{"...", "LLM_Out": "NO_RESPONSE"}`.
+
+---
+
+US15: Download Output
+
+As a user, I want to download the processed CSV file, which includes the original data plus the new column(s) containing the LLM responses, so that I can use the enriched data.
+
+- **`test_download_button_generates_csv_with_original_and_new_llm_columns`**
+    - **Given:** Processing is complete (or stopped). The internal dataset contains original columns and new LLM-generated columns with data.
+    - **When:** The user clicks "Download Processed CSV".
+    - **Then:** A CSV file is generated.
+    - **And:** The CSV file content correctly represents the internal dataset, including all original data and all appended LLM response columns.
+    - **And:** Column headers in the CSV match original headers and specified output column names.
+- **`test_downloaded_csv_handles_special_characters_in_llm_responses_correctly`** (e.g., commas, quotes, newlines within a cell)
+    - **Given:** An LLM response contains `This is a response, with a comma and "quotes".`.
+    - **When:** The CSV is downloaded.
+    - **Then:** The cell in the CSV is correctly formatted
+- **`test_download_button_is_disabled_before_any_processing_or_if_no_data`**
+    - **Given:** No CSV uploaded, or CSV uploaded but no processing has occurred.
+    - **When:** The user views the interface.
+    - **Then:** The "Download Processed CSV" button is disabled or not visible.
+- **`test_download_filename_is_sensible`** (e.g., `original_filename_enriched.csv`)
+    - **Given:** Original uploaded file was `my_data.csv`.
+    - **When:** User clicks download.
+    - **Then:** The suggested download filename is like `my_data_enriched.csv`.
+
+---
+
+US16: Error Display
+
+As a user, if an error occurs during processing, I want to see a clear message in the console view explaining the issue so that I can troubleshoot or report it.
+
+- **`test_llm_api_key_invalid_error_shown_in_console`**
+    - **Given:** Processing starts, but the Perplexity API key is invalid.
+    - **When:** The system attempts its first API call.
+    - **Then:** The console view displays a clear error message like: "Error: Perplexity API Key is invalid or unauthorized. Please check your configuration."
+    - **And:** Processing halts or enters an error state.
+
+- **`test_network_error_connecting_to_llm_shown_in_console`**
+    - **Given:** Processing is ongoing.
+    - **When:** The system fails to connect to the LLM service.
+    - **Then:** The console view displays: "Error: Network connection to LLM service failed. Check your internet connection."
+    - **And:** The system might retry a few times before pausing or stopping.
+- **`test_unexpected_llm_api_response_error_shown_in_console`**
+    - **Given:** Processing is ongoing.
+    - **When:** The system receives this response.
+    - **Then:** The console view displays: "Error: Received unexpected response from LLM for row X. Details: [error details/status code]."
+    - **And:** The system moves to the next row/query or handles as per US13.
+- **`test_csv_parsing_error_during_dynamic_prompt_filling_if_applicable`**
+    - **Given:** A row in the CSV has malformed data that breaks prompt formatting (e.g., unexpected characters if not sanitized).
+    - **When:** The system tries to create the prompt string for that row.
+    - **Then:** The console view displays: "Error processing row X: Could not generate prompt. Data issue: [details]."
+    - **And:** The system skips that row and continues.

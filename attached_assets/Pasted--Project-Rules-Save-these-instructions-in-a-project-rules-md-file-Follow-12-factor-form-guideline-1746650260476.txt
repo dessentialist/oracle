@@ -1,0 +1,48 @@
+# Project Rules
+
+Save these instructions in a project_rules.md file.
+Follow 12 factor form guidelines at all times. 
+Create a live document called ROADMAP.md file that you will use to refrence the implementation roadmap, 
+Create a comprehensive BLUEPRINT.md that is used as a live document and source of truth for the app development
+The code should be reusable and scalable as far as possible, and easy to build on or edit later.
+First design test-cases for back-end features, which I will review, and then use test-driven development to implement the features
+First design behaviour test cases using Gherkin syntax for the front-end, and then use behaviour-driven development for the front-end
+Always comment the code, including the logic of the function. 
+Update the comments as the code is updated throughout the life cycle of the project. 
+Create a detailed README.md file that explains the structure of the app, and provides a helpful directory of resources for someone to quickly understand the app and it's full context.
+Keep the README.md file updated with every significant change. Refer to it when you need to understand the codebase.
+Create a FUNCTIONS.md file in the root folder that lists out all the functions and codebase logic with brief explanations of each function in all the parts of the app.
+Run lint tests for quality checks.
+When you have to do multiple things, chunk the work. Do one significant piece of work at a time, and run quality checks at the end of each chunk of work. Wait for review and approval, then proceed to the next part.  
+
+## Coding Standards
+
+1. Use descriptive variable and function names
+2. Follow PEP 8 style guide for Python code
+3. Follow Airbnb style guide for JavaScript code
+4. Use proper indentation and consistent code formatting
+5. Write comprehensive comments and docstrings
+6. Include error handling for all external API calls
+7. Log important events and errors
+
+## Testing Standards
+
+1. Write unit tests for all backend functions
+2. Write BDD tests for all frontend components
+3. Maintain high test coverage (aim for at least 90%)
+4. Tests should be independent and repeatable
+5. Mock external dependencies when testing
+
+## Documentation Standards
+
+1. Keep documentation up-to-date with code changes
+2. Document all functions, classes, and modules
+3. Include usage examples in documentation
+4. Document all API endpoints
+5. Maintain a changelog for significant updates
+
+## Performance Standards
+
+1. Responsive layout for desktop/mobile
+2. Clear, actionable error messages
+
