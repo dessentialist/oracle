@@ -131,6 +131,8 @@ export class LLMService {
     const enrichedRows: Record<string, any>[] = [];
     const totalRows = rows.length;
     let processedRows = 0;
+    let errorCount = 0;
+    let noResponseCount = 0;
     
     // Get initial processing status
     const status = await storage.getProcessingStatus(csvFileId);
@@ -145,6 +147,32 @@ export class LLMService {
     
     try {
       for (const row of rows) {
+        // Before processing each row, check current status for pause/stop requests
+        const currentStatus = await storage.getProcessingStatus(csvFileId);
+        
+        // If processing was paused or stopped by the user, respect that
+        if (currentStatus.status === 'paused') {
+          await storage.addConsoleMessage(csvFileId, {
+            type: 'info',
+            message: 'Processing paused by user.',
+            timestamp: new Date().toISOString()
+          });
+          
+          // Return the rows processed so far
+          return enrichedRows;
+        }
+        
+        if (currentStatus.status === 'idle' || currentStatus.status === 'error') {
+          await storage.addConsoleMessage(csvFileId, {
+            type: 'info',
+            message: 'Processing stopped by user or due to an error.',
+            timestamp: new Date().toISOString()
+          });
+          
+          // Return the rows processed so far
+          return enrichedRows;
+        }
+        
         const enrichedRow = { ...row };
         
         for (let i = 0; i < promptTemplates.length; i++) {
@@ -161,22 +189,77 @@ export class LLMService {
             // Add the response to the row
             enrichedRow[outputName] = response;
           } catch (error) {
-            // If there's an error with the entire processing, let it propagate up
+            // Check for auth/API key errors which should halt processing
+            if (error instanceof Error && 
+                (error.message.includes('401 Unauthorized') || 
+                 error.message.includes('Invalid API key'))) {
+              
+              await storage.addConsoleMessage(csvFileId, {
+                type: 'error',
+                message: 'Critical Error: Perplexity API Key is invalid or revoked. Processing halted.',
+                timestamp: new Date().toISOString()
+              });
+              
+              // Update status to error
+              await storage.updateProcessingStatus(csvFileId, {
+                ...status,
+                status: 'error',
+                progress: Math.round((processedRows / totalRows) * 100),
+                processedRows,
+                totalRows,
+                error: 'API key is invalid or has been revoked'
+              });
+              
+              throw new Error('API request failed with status 401 Unauthorized. {"error": "Invalid API key"}');
+            }
+            
+            // Check for rate limit errors which should pause processing
             if (error instanceof Error && error.message.includes('API rate limit')) {
-              throw error;
+              await storage.addConsoleMessage(csvFileId, {
+                type: 'warning',
+                message: 'Rate limit hit. Pausing processing.',
+                timestamp: new Date().toISOString()
+              });
+              
+              // Update status to paused
+              await storage.updateProcessingStatus(csvFileId, {
+                ...status,
+                status: 'paused',
+                progress: Math.round((processedRows / totalRows) * 100),
+                processedRows,
+                totalRows
+              });
+              
+              return enrichedRows;
             }
             
             // If an error occurs for a specific prompt, log it and continue
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             
-            await storage.addConsoleMessage(csvFileId, {
-              type: 'warning',
-              message: `Warning: No response for row with ${Object.keys(row)[0]} = ${Object.values(row)[0]}, column: ${outputName}. ${errorMessage}`,
-              timestamp: new Date().toISOString()
-            });
-            
-            // Add an empty or error message to the row
-            enrichedRow[outputName] = `[Error: ${errorMessage}]`;
+            // Determine if it's a no-response error or a different API error
+            if (errorMessage.includes('No response') || errorMessage.includes('timeout')) {
+              noResponseCount++;
+              
+              await storage.addConsoleMessage(csvFileId, {
+                type: 'warning',
+                message: `Warning: No response for row ${processedRows + 1}, query ${i + 1}. Moving to next.`,
+                timestamp: new Date().toISOString()
+              });
+              
+              // Mark as NO_RESPONSE in the output
+              enrichedRow[outputName] = 'NO_RESPONSE';
+            } else {
+              errorCount++;
+              
+              await storage.addConsoleMessage(csvFileId, {
+                type: 'error',
+                message: `Error: LLM API error for row ${processedRows + 1}, query ${i + 1}. Details: ${errorMessage}. Moving to next.`,
+                timestamp: new Date().toISOString()
+              });
+              
+              // Mark as API_ERROR in the output
+              enrichedRow[outputName] = 'API_ERROR';
+            }
           }
         }
         
@@ -192,6 +275,22 @@ export class LLMService {
           totalRows
         });
       }
+      
+      // Construct completion message with error/no-response counts
+      let completionMessage = `Processing complete. ${processedRows} rows processed.`;
+      
+      if (errorCount > 0 || noResponseCount > 0) {
+        completionMessage += ` (${errorCount > 0 ? `${errorCount} with LLM error` : ''}${
+          errorCount > 0 && noResponseCount > 0 ? ', ' : ''
+        }${noResponseCount > 0 ? `${noResponseCount} with no LLM response` : ''})`;
+      }
+      
+      // Log completion
+      await storage.addConsoleMessage(csvFileId, {
+        type: 'success',
+        message: completionMessage,
+        timestamp: new Date().toISOString()
+      });
       
       // Update status to completed
       await storage.updateProcessingStatus(csvFileId, {
@@ -263,16 +362,30 @@ export class LLMService {
    * @returns Matching column names
    */
   static getAutocompleteSuggestions(partialInput: string, availableHeaders: string[]): string[] {
-    // If partialInput is empty, return all headers
-    if (!partialInput) {
+    // If partialInput is empty or undefined, return all headers
+    if (!partialInput || partialInput.trim() === '') {
       return [...availableHeaders];
     }
     
-    const normalizedInput = partialInput.toLowerCase();
+    const normalizedInput = partialInput.trim().toLowerCase();
     
-    // Filter headers that include the partialInput
-    return availableHeaders.filter(header => 
-      header.toLowerCase().includes(normalizedInput)
+    // Start with exact matches (case-insensitive)
+    let matches = availableHeaders.filter(header => 
+      header.toLowerCase() === normalizedInput
     );
+    
+    // Then add headers that start with the input
+    matches = [...matches, ...availableHeaders.filter(header => 
+      header.toLowerCase().startsWith(normalizedInput) && 
+      !matches.includes(header)
+    )];
+    
+    // Then add headers that contain the input as a substring
+    matches = [...matches, ...availableHeaders.filter(header => 
+      header.toLowerCase().includes(normalizedInput) && 
+      !matches.includes(header)
+    )];
+    
+    return matches;
   }
 }
