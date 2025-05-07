@@ -32,6 +32,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const clients = new Map<string, WebSocket>();
+  
+  // Endpoint to download enriched CSV files
+  app.get('/api/download/:csvFileId', async (req: Request, res: Response) => {
+    try {
+      const csvFileId = parseInt(req.params.csvFileId);
+      
+      // Get the CSV file metadata
+      const csvFile = await storage.getCsvFile(csvFileId);
+      if (!csvFile) {
+        return res.status(404).json({ error: 'CSV file not found' });
+      }
+      
+      // Get the enriched CSV file path
+      const csvFileName = csvFile.originalFilename;
+      const csvFilePath = `enriched/enriched_${csvFileName}`;
+      
+      // Get the CSV data
+      const csvData = await storage.getCsvData(csvFileId);
+      if (!csvData) {
+        return res.status(404).json({ error: 'CSV data not found' });
+      }
+      
+      // Generate the enriched CSV data
+      const { content: csvContent } = await CsvService.generateEnrichedCsv(csvFileId, csvData.rows);
+      
+      // Log the download action
+      await storage.addConsoleMessage(csvFileId, {
+        type: 'info',
+        message: `Downloading enriched CSV file: enriched_${csvFileName}`,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Set headers for file download
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="enriched_${csvFileName}"`);
+      
+      // Send the CSV content
+      res.send(csvContent);
+    } catch (error) {
+      console.error('Error downloading CSV file:', error);
+      res.status(500).json({ error: 'Failed to download CSV file' });
+    }
+  });
 
   // Helper function to safely handle WebSocket connections
   wsServer.on("connection", (socket: WebSocket) => {
