@@ -65,7 +65,7 @@ export default function ProcessControl({
   // Determine which processing buttons to show based on current status
   const showStartButton = status === "idle" || status === "completed" || status === "error";
   const showProcessingControls = status === "processing" || status === "paused";
-  const showDownloadButton = status === "completed" || 
+  const showDownloadButton = status === "completed" || status === "paused" || 
     (status === "idle" && processedRows > 0);
 
   return (

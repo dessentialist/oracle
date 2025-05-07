@@ -645,10 +645,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const status = await storage.getProcessingStatus(csvFileId);
-      if (status.status !== "completed") {
+      // Allow download if processing is completed, paused, or if there are processed rows
+      if (status.status !== "completed" && status.status !== "paused" && status.processedRows === 0) {
         return res
           .status(400)
-          .json({ message: "Processing is not complete" });
+          .json({ message: "No processed data available for download" });
       }
 
       // In a real implementation, we'd retrieve the enriched CSV content
