@@ -1398,7 +1398,7 @@ describe('Feature: Core Data Enrichment Workflow', () => {
       }));
       
       // Then generate enriched CSV with partial results
-      const enrichedCsv = await CsvService.generateEnrichedCsv(1, partialResults);
+      const { content: enrichedCsv } = await CsvService.generateEnrichedCsv(1, partialResults);
       
       // Verify partial results are included
       expect(enrichedCsv).toContain('BatchCol,Analysis');
