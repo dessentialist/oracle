@@ -4,6 +4,33 @@ import React from "react";
 import ProcessControl from "../../client/src/components/ProcessControl";
 import { useProcessing, usePreview } from "../../client/src/hooks/use-processing";
 
+// Mock the shadcn components
+vi.mock("@/components/ui/card", () => {
+  const { Card, CardContent } = require("../../tests/mocks/ui-components");
+  return { Card, CardContent };
+});
+
+vi.mock("@/components/ui/button", () => {
+  const { Button } = require("../../tests/mocks/ui-components");
+  return { Button };
+});
+
+vi.mock("@/components/ui/progress", () => {
+  const { Progress } = require("../../tests/mocks/ui-components");
+  return { Progress };
+});
+
+// Mock the app components
+vi.mock("@/components/ConsoleView", () => {
+  const { ConsoleView } = require("../../tests/mocks/app-components");
+  return { default: ConsoleView };
+});
+
+vi.mock("@/components/PreviewModal", () => {
+  const { PreviewModal } = require("../../tests/mocks/app-components");
+  return { default: PreviewModal };
+});
+
 // Mock the hooks
 vi.mock("../../client/src/hooks/use-processing", () => ({
   useProcessing: vi.fn(),

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import React from "react";
 import ProcessControl from "../../client/src/components/ProcessControl";
 import { useProcessing, usePreview } from "../../client/src/hooks/use-processing";
 
@@ -22,7 +23,7 @@ const revokeObjectURLMock = vi.fn();
 
 // Mock document.createElement to track creation of the download anchor
 const originalCreateElement = document.createElement;
-let mockAnchor = null;
+let mockAnchor: { style: Record<string, string>; href: string; download: string; click: ReturnType<typeof vi.fn> } | null = null;
 
 describe("ProcessControl - Download Button", () => {
   beforeEach(() => {
@@ -36,7 +37,7 @@ describe("ProcessControl - Download Button", () => {
     createObjectURLMock.mockReturnValue("mock-url");
     
     // Mock document.createElement
-    document.createElement = (tagName) => {
+    document.createElement = ((tagName: string) => {
       if (tagName === "a") {
         mockAnchor = {
           style: {},
@@ -44,10 +45,10 @@ describe("ProcessControl - Download Button", () => {
           download: "",
           click: vi.fn()
         };
-        return mockAnchor;
+        return mockAnchor as unknown as HTMLElement;
       }
       return originalCreateElement.call(document, tagName);
-    };
+    }) as typeof document.createElement;
     
     // Mock appendChild and removeChild
     document.body.appendChild = vi.fn();
