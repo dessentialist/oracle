@@ -30,8 +30,8 @@ vi.mock('../../server/storage', () => ({
     getCsvFile: vi.fn(),
     getCsvData: vi.fn(),
     getPromptConfigsByCsvFileId: vi.fn(),
-    getProcessingState: vi.fn(),
-    updateProcessingState: vi.fn(),
+    getProcessingStatus: vi.fn(),
+    updateProcessingStatus: vi.fn(),
     addConsoleMessage: vi.fn(),
     getConsoleMessages: vi.fn(),
     clearConsoleMessages: vi.fn(),
@@ -78,12 +78,11 @@ describe('Feature: User Interface Interactions', () => {
 
     it('should update the progress bar as API processing progresses', async () => {
       // Given - Initial processing state at 0%
-      vi.mocked(storage.getProcessingState).mockResolvedValueOnce({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValueOnce({
         status: 'processing',
+        progress: 0,
         processedRows: 0,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: null
+        totalRows: 5
       });
       
       // Mock response for initial status check
@@ -124,12 +123,11 @@ describe('Feature: User Interface Interactions', () => {
       };
       
       // Step 2: Process 2 rows (40% complete)
-      vi.mocked(storage.getProcessingState).mockResolvedValueOnce({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValueOnce({
         status: 'processing',
+        progress: 40,
         processedRows: 2,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: null
+        totalRows: 5
       });
       
       mockWebSocketServer.broadcast({
@@ -143,12 +141,11 @@ describe('Feature: User Interface Interactions', () => {
       });
       
       // Step 3: Complete processing (100%)
-      vi.mocked(storage.getProcessingState).mockResolvedValueOnce({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValueOnce({
         status: 'completed',
+        progress: 100,
         processedRows: 5,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: new Date().toISOString()
+        totalRows: 5
       });
       
       mockWebSocketServer.broadcast({
@@ -177,12 +174,11 @@ describe('Feature: User Interface Interactions', () => {
     
     it('should correctly reflect a paused processing state', async () => {
       // Given - Processing is paused at 60%
-      vi.mocked(storage.getProcessingState).mockResolvedValue({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValue({
         status: 'paused',
+        progress: 60,
         processedRows: 3,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: null
+        totalRows: 5
       });
       
       // Mock fetch response for status check
@@ -222,18 +218,16 @@ describe('Feature: User Interface Interactions', () => {
     
     it('should handle and display errors during processing', async () => {
       // Given - First update is successful, second has an error
-      vi.mocked(storage.getProcessingState).mockResolvedValueOnce({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValueOnce({
         status: 'processing',
+        progress: 20,
         processedRows: 1,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: null
+        totalRows: 5
       }).mockResolvedValueOnce({
         status: 'error',
+        progress: 40,
         processedRows: 2,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: new Date().toISOString()
+        totalRows: 5
       });
       
       // Mock fetch responses
@@ -284,7 +278,12 @@ describe('Feature: User Interface Interactions', () => {
       });
       
       // Also generate a console error message
-      vi.mocked(storage.addConsoleMessage).mockResolvedValueOnce(true);
+      vi.mocked(storage.addConsoleMessage).mockResolvedValueOnce({
+        id: '123',
+        type: 'error',
+        message: 'API error occurred',
+        timestamp: new Date().toISOString()
+      });
       
       // Then - Verify the error state was broadcast
       expect(mockWebSocketServer.broadcast).toHaveBeenCalledTimes(2);
@@ -336,16 +335,20 @@ describe('Feature: User Interface Interactions', () => {
 
     it('should download the CSV file with correct headers and content', async () => {
       // Given - Process is completed and enriched CSV is available
-      vi.mocked(storage.getProcessingState).mockResolvedValue({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValue({
         status: 'completed',
+        progress: 100,
         processedRows: 5,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: new Date().toISOString()
+        totalRows: 5
       });
       
       // Mock console message for download
-      vi.mocked(storage.addConsoleMessage).mockResolvedValueOnce(true);
+      vi.mocked(storage.addConsoleMessage).mockResolvedValueOnce({
+        id: '123',
+        type: 'info',
+        message: 'Downloading enriched CSV',
+        timestamp: new Date().toISOString()
+      });
       
       // When - Simulate downloading the CSV file
       const response = await fetch('/api/download/1');
@@ -386,12 +389,11 @@ describe('Feature: User Interface Interactions', () => {
     
     it('should download the latest version of the enriched file', async () => {
       // Given - File has been updated since initial processing
-      vi.mocked(storage.getProcessingState).mockResolvedValue({
+      vi.mocked(storage.getProcessingStatus).mockResolvedValue({
         status: 'completed',
+        progress: 100,
         processedRows: 5,
-        totalRows: 5,
-        startTime: new Date().toISOString(),
-        endTime: new Date().toISOString()
+        totalRows: 5
       });
       
       // First generate an enriched CSV with initial content
